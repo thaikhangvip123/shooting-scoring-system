@@ -1,0 +1,22 @@
+[
+  {"id":"shot-001","timestamp":"2024-05-14T08:00:01Z","x_mm":  2.1, "y_mm":  3.4, "score":10,"ring":"X","session_id":"session-abc123"},
+  {"id":"shot-002","timestamp":"2024-05-14T08:00:08Z","x_mm": -5.3, "y_mm":  8.1, "score":10,"ring":"10","session_id":"session-abc123"},
+  {"id":"shot-003","timestamp":"2024-05-14T08:00:16Z","x_mm": 18.7, "y_mm":-12.4, "score": 9,"ring":"9","session_id":"session-abc123"},
+  {"id":"shot-004","timestamp":"2024-05-14T08:00:25Z","x_mm":-22.0, "y_mm": 15.0, "score": 9,"ring":"9","session_id":"session-abc123"},
+  {"id":"shot-005","timestamp":"2024-05-14T08:00:33Z","x_mm":  9.5, "y_mm":-30.2, "score": 8,"ring":"8","session_id":"session-abc123"},
+  {"id":"shot-006","timestamp":"2024-05-14T08:00:41Z","x_mm":-35.8, "y_mm":  4.7, "score": 8,"ring":"8","session_id":"session-abc123"},
+  {"id":"shot-007","timestamp":"2024-05-14T08:00:50Z","x_mm": 42.3, "y_mm": 28.9, "score": 7,"ring":"7","session_id":"session-abc123"},
+  {"id":"shot-008","timestamp":"2024-05-14T08:01:00Z","x_mm":-15.6, "y_mm":-48.1, "score": 7,"ring":"7","session_id":"session-abc123"},
+  {"id":"shot-009","timestamp":"2024-05-14T08:01:09Z","x_mm": 58.0, "y_mm":  1.0, "score": 7,"ring":"7","session_id":"session-abc123"},
+  {"id":"shot-010","timestamp":"2024-05-14T08:01:18Z","x_mm":  0.5, "y_mm":  0.8, "score":10,"ring":"X","session_id":"session-abc123"},
+  {"id":"shot-011","timestamp":"2024-05-14T08:01:27Z","x_mm": 70.1, "y_mm":-35.5, "score": 6,"ring":"6","session_id":"session-abc123"},
+  {"id":"shot-012","timestamp":"2024-05-14T08:01:36Z","x_mm":-62.4, "y_mm": 55.3, "score": 6,"ring":"6","session_id":"session-abc123"},
+  {"id":"shot-013","timestamp":"2024-05-14T08:01:45Z","x_mm": 88.7, "y_mm": 20.1, "score": 5,"ring":"5","session_id":"session-abc123"},
+  {"id":"shot-014","timestamp":"2024-05-14T08:01:54Z","x_mm": -3.2, "y_mm":  6.5, "score":10,"ring":"10","session_id":"session-abc123"},
+  {"id":"shot-015","timestamp":"2024-05-14T08:02:03Z","x_mm":105.5, "y_mm":-78.3, "score": 4,"ring":"4","session_id":"session-abc123"},
+  {"id":"shot-016","timestamp":"2024-05-14T08:02:12Z","x_mm":-90.0, "y_mm":-20.0, "score": 5,"ring":"5","session_id":"session-abc123"},
+  {"id":"shot-017","timestamp":"2024-05-14T08:02:21Z","x_mm": 14.2, "y_mm": 11.8, "score": 9,"ring":"9","session_id":"session-abc123"},
+  {"id":"shot-018","timestamp":"2024-05-14T08:02:30Z","x_mm":135.0, "y_mm": 60.0, "score": 3,"ring":"3","session_id":"session-abc123"},
+  {"id":"shot-019","timestamp":"2024-05-14T08:02:39Z","x_mm": -7.8, "y_mm":-14.3, "score":10,"ring":"10","session_id":"session-abc123"},
+  {"id":"shot-020","timestamp":"2024-05-14T08:02:48Z","x_mm":160.0, "y_mm":-90.0, "score": 2,"ring":"2","session_id":"session-abc123"}
+]

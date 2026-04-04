@@ -1,0 +1,39 @@
+/* Target canvas animations and overrides */
+
+.hit-marker {
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.hit-marker:hover .hit-ring-outer {
+  opacity: 0.9;
+}
+
+/* New hit pulse animation */
+@keyframes hitPulse {
+  0%   { r: 8;   opacity: 1; }
+  100% { r: 22;  opacity: 0; }
+}
+
+.hit-pulse {
+  animation: hitPulse 0.7s ease-out forwards;
+  pointer-events: none;
+}
+
+/* Ring label fade on hover */
+.target-ring-label {
+  transition: opacity 0.2s;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.target-svg:hover .target-ring-label {
+  opacity: 1;
+}
+
+/* Crosshair lines */
+.target-crosshair {
+  stroke: rgba(255,255,255,0.12);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+}
