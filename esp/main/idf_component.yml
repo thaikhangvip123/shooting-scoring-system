@@ -1,0 +1,5 @@
+dependencies:
+  esp_lcd_sh8601: "^2.0.1"
+  idf:
+    version: '>=4.1.0'
+  lvgl/lvgl: "^8.4.0"
