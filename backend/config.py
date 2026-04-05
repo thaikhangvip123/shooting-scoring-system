@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     port:        int  = 8000
 
     # ── Firebase ──────────────────────────────────────────────────────────────
-    firebase_creds_path: str  = "serviceAccountKey.json"
+    firebase_creds_path: str  = "backend/serviceAccountKey.json"
     firebase_db_url:     str  = ""          # e.g. https://your-project.firebaseio.com
     use_firebase:        bool = True        # set False to use in-memory store
 
