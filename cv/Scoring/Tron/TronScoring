@@ -1,0 +1,32 @@
+import cv2
+import numpy as np
+
+img = cv2.imread("D:/baitapxaml/HK252/DATN/A4_Tron3.png")
+
+center = (1240, 1754)
+
+radii = [
+897.0,
+802.5,
+708.0,
+613.5,
+519.0,
+424.5,
+330.0,
+235.5,
+141.0,
+51
+]
+
+output = img.copy()
+
+for r in radii:
+    cv2.circle(output, center, int(r), (0,255,0), 2)
+
+cv2.circle(output, center, 6, (0,0,255), -1)
+
+cv2.namedWindow("result", cv2.WINDOW_NORMAL)
+cv2.imshow("result", output)
+cv2.waitKey(0)
+cv2.imwrite("debug_rings.png", output)
+cv2.destroyAllWindows()
