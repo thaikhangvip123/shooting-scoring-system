@@ -10,7 +10,7 @@ from sklearn.metrics import silhouette_score
 # ==========================================
 # 1. ĐỌC ẢNH VÀ THIẾT LẬP HỆ TỌA ĐỘ (mm)
 # ==========================================
-image_path = 'D:/baitapxaml/HK252/DATN/A4_Tron2.png'
+image_path = 'D:/baitapxaml/HK252/DATN/A4_Tron2.png' #Sửa lại đường dẫn cho loại bia
 img_bgr = cv2.imread(image_path)
 if img_bgr is None:
     print(f"Lỗi: Không tìm thấy file {image_path}. Vui lòng kiểm tra lại đường dẫn!")
