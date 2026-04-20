@@ -4,7 +4,8 @@
  * All values are persisted to localStorage.
  */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { postShot } from '@/api/client';
 
 const DEFAULTS = {
   apiUrl:          'http://localhost:8000',
@@ -29,6 +30,11 @@ function saveSettings(s) {
 export default function SettingsPage() {
   const [settings, setSettings] = useState(loadSettings);
   const [saved,    setSaved]    = useState(false);
+  const [shotJson, setShotJson] = useState(() =>
+    JSON.stringify({ x_mm: 10.5, y_mm: -3.2, session_id: 'demo', metadata: { source: 'ui' } }, null, 2)
+  );
+  const [injecting, setInjecting] = useState(false);
+  const [injectMsg, setInjectMsg] = useState(null);
 
   const set = (key) => (e) =>
     setSettings((prev) => ({ ...prev, [key]: e.target.value }));
@@ -68,6 +74,34 @@ export default function SettingsPage() {
     fontFamily: "'JetBrains Mono', monospace",
   };
 
+  const textAreaStyle = useMemo(() => ({
+    ...inputStyle,
+    minHeight: 160,
+    resize: 'vertical',
+    lineHeight: 1.4,
+  }), []);
+
+  const handleInject = async () => {
+    setInjectMsg(null);
+    let payload;
+    try {
+      payload = JSON.parse(shotJson);
+    } catch (e) {
+      setInjectMsg(`Invalid JSON: ${e.message}`);
+      return;
+    }
+
+    setInjecting(true);
+    try {
+      const res = await postShot(payload);
+      setInjectMsg(`Posted /shot OK. id=${res?.id ?? '(no id)'} score=${res?.score ?? '(no score)'}`);
+    } catch (e) {
+      setInjectMsg(`POST /shot failed: ${e.message}`);
+    } finally {
+      setInjecting(false);
+    }
+  };
+
   return (
     <div style={{ maxWidth: 560 }}>
       <div className="card" style={{ padding: 28 }}>
@@ -101,6 +135,33 @@ export default function SettingsPage() {
           <button className="btn" onClick={handleReset}>
             Reset Defaults
           </button>
+        </div>
+      </div>
+
+      <div className="card" style={{ padding: 28, marginTop: 12 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12, color: 'var(--c-text-1)' }}>
+          Send shot JSON (FastAPI `POST /shot`)
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--c-text-3)', marginBottom: 10 }}>
+          Paste a `ShotCreate` payload (requires `x_mm` and `y_mm`). This will create a shot in FastAPI and broadcast it to WebSocket clients.
+        </div>
+
+        <textarea
+          style={textAreaStyle}
+          value={shotJson}
+          onChange={(e) => setShotJson(e.target.value)}
+          spellCheck={false}
+        />
+
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 10 }}>
+          <button className="btn btn-accent" onClick={handleInject} disabled={injecting}>
+            {injecting ? 'Posting…' : 'POST /shot'}
+          </button>
+          {injectMsg && (
+            <div style={{ fontSize: 12, color: injectMsg.startsWith('POST /shot failed') || injectMsg.startsWith('Invalid JSON') ? 'var(--c-danger)' : 'var(--c-text-2)' }}>
+              {injectMsg}
+            </div>
+          )}
         </div>
       </div>
 

@@ -38,17 +38,19 @@ logger = logging.getLogger(__name__)
 from backend.services import shot_service as _ss
 from backend.models.shot import ShotResponse
 
-_original_register = _ss.register_shot
+if not getattr(_ss, "_ws_broadcast_patch_applied", False):
+    _original_register = _ss.register_shot
 
-async def _register_and_broadcast(payload) -> ShotResponse:
-    result = await _original_register(payload)
-    # Broadcast to all WS clients — fire-and-forget
-    if ws_manager.client_count > 0:
-        import asyncio
-        asyncio.create_task(ws_manager.broadcast(result.model_dump(mode="json")))
-    return result
+    async def _register_and_broadcast(payload) -> ShotResponse:
+        result = await _original_register(payload)
+        # Broadcast to all WS clients — fire-and-forget
+        if ws_manager.client_count > 0:
+            import asyncio
+            asyncio.create_task(ws_manager.broadcast(result.model_dump(mode="json")))
+        return result
 
-_ss.register_shot = _register_and_broadcast  # monkey-patch
+    _ss.register_shot = _register_and_broadcast  # monkey-patch
+    _ss._ws_broadcast_patch_applied = True
 
 
 # ─── Lifespan ─────────────────────────────────────────────────────────────────

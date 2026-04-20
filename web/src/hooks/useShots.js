@@ -13,6 +13,18 @@ const MAX_SHOTS        = 500;   // cap in-memory history
 const INITIAL_BACKOFF  = 1000;  // ms
 const MAX_BACKOFF      = 30000; // ms
 
+function dedupeById(items = []) {
+  const seen = new Set();
+  const out = [];
+  for (const item of items) {
+    const id = item?.id;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(item);
+  }
+  return out;
+}
+
 /**
  * @returns {{
  *   shots:      object[],
@@ -41,7 +53,8 @@ export function useShots() {
       setError(null);
       const data = await getShotHistory(MAX_SHOTS);
       if (mounted.current) {
-        setShots(Array.isArray(data) ? data : data.shots ?? []);
+        const history = Array.isArray(data) ? data : data.shots ?? [];
+        setShots(dedupeById(history).slice(0, MAX_SHOTS));
       }
     } catch (e) {
       if (mounted.current) setError(e.message);
@@ -61,7 +74,7 @@ export function useShots() {
         if (!mounted.current) return;
         backoffRef.current = INITIAL_BACKOFF; // reset on successful message
         setShots((prev) => {
-          const next = [shot, ...prev];
+          const next = dedupeById([shot, ...prev]);
           return next.length > MAX_SHOTS ? next.slice(0, MAX_SHOTS) : next;
         });
         setWsStatus('open');
