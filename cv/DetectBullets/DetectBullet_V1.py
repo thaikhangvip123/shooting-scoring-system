@@ -9,7 +9,7 @@ from datetime import datetime # Thêm thư viện để lấy thời gian thực
 # ==========================================
 # 1. CẤU HÌNH ĐƯỜNG DẪN & THÔNG SỐ LÕI
 # ==========================================
-VIDEO_PATH = "D:/baitapxaml/HK252/DATN/DetectBullet/IPSC.mp4"
+VIDEO_PATH = "D:/baitapxaml/HK252/DATN/DetectBullet/circle2.mp4"
 EXPECTED_RADIUS = 25  
 LOG_FILE_PATH = "bullet_logs.txt" # Thêm đường dẫn file log
 

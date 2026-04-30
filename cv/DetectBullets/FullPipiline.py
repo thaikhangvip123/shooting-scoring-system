@@ -18,13 +18,13 @@ VIDEO_PATH = "D:/baitapxaml/HK252/DATN/DetectBullet/target.mp4"
 LOG_FILE_PATH = "bullet_logs.txt"
 EXPECTED_RADIUS = 25  
 
-PATH_IPSC_POLY = "shooting-scoring-system/cv/Scoring/IPSC/polygon.txt"
-PATH_NGUOI_CONT = "shooting-scoring-system/cv/Scoring/Nguoi/Nguoi_contours.txt"
+PATH_IPSC_POLY = "Main/shooting-scoring-system/cv/Scoring/IPSC/polygon.txt"
+PATH_NGUOI_CONT = "Main/shooting-scoring-system/cv/Scoring/Nguoi/Nguoi_contours.txt"
 
 TEMPLATE_PATHS = {
-    "BIA_TRON": "shooting-scoring-system/cv/DetectBullets/A4_Tron3.png",   
-    "BIA_IPSC": "shooting-scoring-system/cv/DetectBullets/A4_IPSC2.png",    
-    "BIA_NGUOI": "shooting-scoring-system/cv/DetectBullets/A4_Nguoi2.png"   
+    "BIA_TRON": "Main/shooting-scoring-system/cv/DetectBullets/A4_Tron3.png",   
+    "BIA_IPSC": "Main/shooting-scoring-system/cv/DetectBullets/A4_IPSC2.png",    
+    "BIA_NGUOI": "Main/shooting-scoring-system/cv/DetectBullets/A4_Nguoi2.png"   
 }
 
 WIDTH, HEIGHT = 1240, 1754
@@ -49,11 +49,13 @@ if os.path.exists(PATH_IPSC_POLY):
             line = line.strip()
             if line == "" or line.startswith("polygon"): continue
             if line == "END":
-                ipsc_polys.append(np.array(current_poly))
+                ipsc_polys.append(np.array(current_poly, dtype=np.int32))  # fix bug 2: thêm dtype
                 current_poly = []
                 continue
             x, y = map(int, line.split(","))
             current_poly.append([x, y])
+        if current_poly:  # fix bug 1: append polygon cuối nếu file không có dòng END
+            ipsc_polys.append(np.array(current_poly, dtype=np.int32))
 
 nguoi_cnts = []
 nguoi_scores = [6, 7, 8, 9, 9, 10, 10]
@@ -153,7 +155,7 @@ def process_layer_1_signed_diff(bg_gray, current_gray, dst_points, margin, dark_
     brightening_mask = np.where(signed_diff > bright_thresh, 255, 0).astype(np.uint8)
     
     # Mask vừa vặn để che ArUco
-    mask_radius = int(margin * 2) 
+    mask_radius = 350
     for pt in dst_points:
         cv2.circle(darkening_mask, (int(pt[0]), int(pt[1])), mask_radius, 0, -1)
         cv2.circle(brightening_mask, (int(pt[0]), int(pt[1])), mask_radius, 0, -1)
