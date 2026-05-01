@@ -46,7 +46,7 @@ def target_worker_thread(target_name, target_state, bg_dict, in_q, out_q):
         
         # 6. TÍNH ĐIỂM & VẼ KẾT QUẢ CHÍNH THỨC
         total_score = 0
-        for (cx, cy, r) in all_display:
+        for (bullet_id, cx, cy, r) in all_display:
             px = (int(cx), int(cy))
             score = calculate_score(target_name, (int(cx * SCALE_FACTOR), int(cy * SCALE_FACTOR)))
             total_score += score
