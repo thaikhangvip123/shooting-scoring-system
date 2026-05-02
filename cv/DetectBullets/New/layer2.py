@@ -26,13 +26,13 @@ def process_layer_2(contour, expected_radius, mask_shape):
     ratio = area / expected_area
     
     # 1. ƯỚC TÍNH SỐ LƯỢNG ĐẠN DỰA VÀO TỶ LỆ DIỆN TÍCH
-    if ratio < 1.3:
+    if ratio < 1.45:      
         n_est = 1
-    elif ratio < 1.75:   
+    elif ratio < 2.2:    
         n_est = 2
-    elif ratio < 2.3:    
+    elif ratio < 3.3:    
         n_est = 3
-    elif ratio < 2.8:    
+    elif ratio < 4.2:    
         n_est = 4
     else:
         n_est = 5

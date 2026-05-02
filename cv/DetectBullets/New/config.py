@@ -23,8 +23,8 @@ dst_points = np.array([
 
 # --- THÔNG SỐ TỐI ƯU MỚI ---
 CIRCULARITY_THRESH = 0.6  # Chuẩn độ tròn mới (Bỏ qua overlap)
-CONFIRM_FRAMES = 3         # Số frame liên tiếp để xác nhận đạn
+CONFIRM_FRAMES = 6         # Số frame liên tiếp để xác nhận đạn
 STALE_FRAMES = 10          # Frame chờ trước khi xóa candidate
-FORGET_FRAMES = 30         # Frame chờ trước khi xóa confirmed
+FORGET_FRAMES = 15         # Frame chờ trước khi xóa confirmed
 MATCH_DIST = 20            # Bán kính tìm kiếm ghép cặp (Hungarian)
 BG_ALPHA = 0.05            # Tốc độ học nền mới (Rolling BG)
