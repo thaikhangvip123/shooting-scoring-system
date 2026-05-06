@@ -1,0 +1,72 @@
+menu "Shooting Score ESP32 Config"
+
+    menu "WiFi Settings"
+        config SHOOT_WIFI_SSID
+            string "WiFi SSID"
+            default "MyAccessPoint"
+            help
+                SSID (network name) of the AP to connect to.
+
+        config SHOOT_WIFI_PASSWORD
+            string "WiFi Password"
+            default "mypassword"
+            help
+                WPA2 password for the AP. Leave empty for open networks.
+
+        config SHOOT_WIFI_MAX_RETRY
+            int "Maximum WiFi reconnect retries"
+            default 10
+            help
+                Number of reconnect attempts before giving up.
+    endmenu
+
+    menu "Backend API"
+        config SHOOT_BACKEND_HOST
+            string "Backend host (IP or hostname)"
+            default "192.168.1.100"
+            help
+                IP address or hostname of the FastAPI server.
+                Do NOT include http:// or port.
+
+        config SHOOT_BACKEND_PORT
+            int "Backend port"
+            default 8000
+            range 1 65535
+
+        config SHOOT_BACKEND_SESSION_ID
+            string "Session ID"
+            default "esp32-session"
+            help
+                Session identifier sent with HTTP pull requests.
+    endmenu
+
+    menu "Hardware Pins"
+        config SHOOT_BUTTON_GPIO
+            int "Button GPIO number"
+            default 0
+            help
+                GPIO for the physical button (active-low, internal pull-up).
+                GPIO 0 = BOOT button on most ESP32-S3 devkits.
+
+        config SHOOT_BUTTON_LONG_PRESS_MS
+            int "Long-press duration (ms)"
+            default 1500
+            help
+                Hold time to trigger long-press (session reset).
+
+        config SHOOT_BUTTON_DBLCLICK_MS
+            int "Double-click window (ms)"
+            default 350
+            help
+                Max interval between two clicks to count as double-click.
+    endmenu
+
+    menu "UI Settings"
+        config SHOOT_MAX_ROWS
+            int "Maximum rows kept in shot list"
+            default 30
+            help
+                Older entries are removed when this limit is reached.
+    endmenu
+
+endmenu

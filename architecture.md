@@ -48,7 +48,7 @@ The system pipeline flows as follows:
 
 ### 4. **ESP32-S3 Device** (`esp/`)
 - **Purpose**: Embedded client that displays real-time scoring statistics on an LCD screen
-- **Display**: 170×320 LVGL UI with SH8601 LCD controller
+- **Display**: 240×320 LVGL UI with ili9341 LCD controller
 - **Connectivity**: WiFi (planned for WebSocket communication with backend)
 - **Status**: Currently has test UI; network integration in progress
 
