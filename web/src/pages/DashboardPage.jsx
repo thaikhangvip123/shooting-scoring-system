@@ -4,42 +4,45 @@
  */
 
 import TargetCanvas    from '@/components/target/TargetCanvas';
+import TargetTypeSelector from '@/components/target/TargetTypeSelector';
 import StatsPanel      from '@/components/stats/StatsPanel';
 import ScoreHistogram  from '@/components/charts/ScoreHistogram';
 import { fmtRelative } from '@/utils/format';
-import { scoreShot }   from '@/utils/scoring';
+import { scoreTargetShot, shotTargetType } from '@/utils/targetGeometry';
 
-export default function DashboardPage({ shots, latestShot, stats }) {
-  const { color, label } = latestShot
-    ? scoreShot(latestShot.x_mm, latestShot.y_mm)
+export default function DashboardPage({ shots, latestShot, stats, targetType, onTargetTypeChange }) {
+  const targetShots = shots.filter((shot) => shotTargetType(shot) === targetType);
+  const latestTargetShot = targetShots[0] ?? null;
+  const { color, label } = latestTargetShot
+    ? scoreTargetShot(latestTargetShot, targetType)
     : {};
 
   return (
     <div style={{ display: 'flex', gap: 20, height: '100%', minHeight: 0 }}>
       {/* ── Left column: Target ──────────────────────────────────────── */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, width: 340, flexShrink: 0 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, width: 534, flexShrink: 0 }}>
         {/* Latest shot card */}
         <div className="card" style={{ padding: '16px 20px' }}>
-          {latestShot ? (
+          {latestTargetShot ? (
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: 11, color: 'var(--c-text-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                   Latest Shot
                 </span>
                 <span style={{ fontSize: 11, color: 'var(--c-text-3)' }}>
-                  {fmtRelative(latestShot.timestamp)}
+                  {fmtRelative(latestTargetShot.timestamp)}
                 </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 8 }}>
                 <span style={{ fontSize: 42, fontWeight: 800, color, lineHeight: 1, fontFamily: 'monospace' }}>
-                  {latestShot.score}
+                  {latestTargetShot.score}
                 </span>
                 <span style={{ fontSize: 18, fontWeight: 600, color, opacity: 0.7 }}>
                   {label}
                 </span>
                 <div style={{ marginLeft: 'auto', textAlign: 'right', fontSize: 12, color: 'var(--c-text-2)' }}>
-                  <div>X: <b>{latestShot.x_mm?.toFixed(1)} mm</b></div>
-                  <div>Y: <b>{latestShot.y_mm?.toFixed(1)} mm</b></div>
+                  <div>X: <b>{Number(latestTargetShot.x_px ?? latestTargetShot.x_mm ?? 0).toFixed(1)} px</b></div>
+                  <div>Y: <b>{Number(latestTargetShot.y_px ?? latestTargetShot.y_mm ?? 0).toFixed(1)} px</b></div>
                 </div>
               </div>
             </>
@@ -51,8 +54,9 @@ export default function DashboardPage({ shots, latestShot, stats }) {
         </div>
 
         {/* Target */}
-        <div className="card" style={{ padding: 16, display: 'flex', justifyContent: 'center' }}>
-          <TargetCanvas shots={shots} latestShot={latestShot} />
+        <div className="card" style={{ padding: 16, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+          <TargetTypeSelector value={targetType} onChange={onTargetTypeChange} />
+          <TargetCanvas shots={shots} latestShot={latestTargetShot} targetType={targetType} />
         </div>
       </div>
 
@@ -68,8 +72,8 @@ export default function DashboardPage({ shots, latestShot, stats }) {
             <span style={{ fontSize: 11, color: 'var(--c-text-3)' }}>last 10</span>
           </div>
           <div style={{ overflowY: 'auto', maxHeight: 220 }}>
-            {shots.slice(0, 10).map((s, i) => {
-              const { color: sc, label: sl } = scoreShot(s.x_mm, s.y_mm);
+            {targetShots.slice(0, 10).map((s, i) => {
+              const { color: sc, label: sl } = scoreTargetShot(s, targetType);
               return (
                 <div
                   key={s.id}
@@ -83,14 +87,14 @@ export default function DashboardPage({ shots, latestShot, stats }) {
                   }}
                 >
                   <span style={{ color: 'var(--c-text-3)', fontSize: 11, width: 18, textAlign: 'right' }}>
-                    {shots.length - i}
+                    {targetShots.length - i}
                   </span>
                   <span style={{ fontWeight: 700, color: sc, fontSize: 15, width: 24 }}>
                     {s.score}
                   </span>
                   <span style={{ fontSize: 11, color: sc, opacity: 0.7, width: 18 }}>{sl}</span>
                   <span style={{ fontSize: 11, color: 'var(--c-text-3)', fontFamily: 'monospace' }}>
-                    ({s.x_mm?.toFixed(1)}, {s.y_mm?.toFixed(1)})
+                    ({Number(s.x_px ?? s.x_mm ?? 0).toFixed(1)}, {Number(s.y_px ?? s.y_mm ?? 0).toFixed(1)})
                   </span>
                   <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--c-text-3)' }}>
                     {new Date(s.timestamp).toLocaleTimeString()}
@@ -98,7 +102,7 @@ export default function DashboardPage({ shots, latestShot, stats }) {
                 </div>
               );
             })}
-            {shots.length === 0 && (
+            {targetShots.length === 0 && (
               <div style={{ padding: 24, textAlign: 'center', color: 'var(--c-text-3)' }}>
                 No shots yet
               </div>

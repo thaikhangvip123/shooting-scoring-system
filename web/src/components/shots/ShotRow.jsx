@@ -2,13 +2,15 @@
  * components/shots/ShotRow.jsx
  */
 
-import { fmtTime, fmtMm, scoreBadgeClass } from '@/utils/format';
+import { fmtTime, scoreBadgeClass } from '@/utils/format';
 import { scoreShot } from '@/utils/scoring';
 
 export default function ShotRow({ shot, isLatest }) {
-  const { label, color } = scoreShot(shot.x_mm, shot.y_mm);
+  const x = Number(shot.x_px ?? shot.x_mm ?? 0);
+  const y = Number(shot.y_px ?? shot.y_mm ?? 0);
+  const { label, color } = scoreShot(x, y);
   const badgeClass       = scoreBadgeClass(shot.score);
-  const radius           = shot.radius ?? Math.sqrt(shot.x_mm ** 2 + shot.y_mm ** 2);
+  const radius           = shot.radius_px ?? shot.radius ?? Math.sqrt(x ** 2 + y ** 2);
 
   return (
     <tr
@@ -29,13 +31,13 @@ export default function ShotRow({ shot, isLatest }) {
         <span className={`badge ${badgeClass}`}>{shot.score}</span>
       </td>
       <td style={{ padding: '7px 12px', fontFamily: 'monospace', color: 'var(--c-text-2)' }}>
-        {fmtMm(shot.x_mm)}
+        {x.toFixed(2)} px
       </td>
       <td style={{ padding: '7px 12px', fontFamily: 'monospace', color: 'var(--c-text-2)' }}>
-        {fmtMm(shot.y_mm)}
+        {y.toFixed(2)} px
       </td>
       <td style={{ padding: '7px 12px', fontFamily: 'monospace', color: 'var(--c-text-2)' }}>
-        {fmtMm(radius)}
+        {radius.toFixed(2)} px
       </td>
       <td style={{ padding: '7px 12px' }}>
         <span style={{ color, fontWeight: 600, fontSize: 13 }}>{label}</span>

@@ -1,5 +1,59 @@
 /* Target canvas animations and overrides */
 
+.target-canvas-box {
+  position: relative;
+  width: 500px;
+  height: 500px;
+  flex: 0 0 500px;
+  overflow: hidden;
+  background: #090b0f;
+}
+
+.target-svg {
+  display: block;
+  width: 500px;
+  height: 500px;
+}
+
+.target-type-selector {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%;
+  gap: 6px;
+}
+
+.target-type-button {
+  min-width: 0;
+  height: 34px;
+  border: 1px solid var(--c-border-2);
+  border-radius: 7px;
+  background: var(--c-bg-2);
+  color: var(--c-text-2);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.target-type-button:hover {
+  background: var(--c-bg-3);
+  color: var(--c-text-1);
+}
+
+.target-type-button.is-active {
+  background: var(--c-accent);
+  border-color: var(--c-accent);
+  color: #fff;
+}
+
+.target-heatmap-canvas {
+  display: block;
+  width: 500px;
+  height: 500px;
+  margin: 0 auto;
+  background: #090b0f;
+}
+
 .hit-marker {
   cursor: pointer;
   transition: opacity 0.2s;

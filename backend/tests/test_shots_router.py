@@ -15,9 +15,11 @@ client = TestClient(app)
 
 
 SAMPLE_SHOT = {
-    "x_mm": 12.5,
-    "y_mm": -8.3,
+    "x_px": 1240.0,
+    "y_px": 1754.0,
+    "timestamp": "2026-05-06T10:30:45Z",
     "session_id": "test-session",
+    "metadata": {"target_type": "TRON"},
 }
 
 
@@ -31,8 +33,8 @@ def test_post_shot_returns_201():
     r = client.post("/shot", json=SAMPLE_SHOT)
     assert r.status_code == 201
     body = r.json()
-    assert body["x_mm"] == 12.5
-    assert body["y_mm"] == -8.3
+    assert body["x_px"] == 1240.0
+    assert body["y_px"] == 1754.0
     assert "score" in body
     assert "ring"  in body
     assert "id"    in body
@@ -41,7 +43,12 @@ def test_post_shot_returns_201():
 
 def test_post_shot_scores_correctly():
     # X-ring shot (near centre)
-    r = client.post("/shot", json={"x_mm": 0.5, "y_mm": 0.3})
+    r = client.post("/shot", json={
+        "x_px": 1240.5,
+        "y_px": 1754.3,
+        "timestamp": "2026-05-06T10:31:45Z",
+        "metadata": {"target_type": "TRON"},
+    })
     assert r.status_code == 201
     assert r.json()["score"] == 10
     assert r.json()["ring"]  == "X"
@@ -49,14 +56,24 @@ def test_post_shot_scores_correctly():
 
 def test_post_shot_miss():
     # Way outside outermost ring
-    r = client.post("/shot", json={"x_mm": 300.0, "y_mm": 0.0})
+    r = client.post("/shot", json={
+        "x_px": 300.0,
+        "y_px": 0.0,
+        "timestamp": "2026-05-06T10:32:45Z",
+        "metadata": {"target_type": "TRON"},
+    })
     assert r.status_code == 201
     assert r.json()["score"] == 0
     assert r.json()["ring"]  == "M"
 
 
 def test_get_latest():
-    client.post("/shot", json={"x_mm": 5.0, "y_mm": 5.0})
+    client.post("/shot", json={
+        "x_px": 1245.0,
+        "y_px": 1759.0,
+        "timestamp": "2026-05-06T10:33:45Z",
+        "metadata": {"target_type": "TRON"},
+    })
     r = client.get("/latest")
     assert r.status_code == 200
     assert r.json() is not None
@@ -91,7 +108,12 @@ def test_heatmap_endpoint():
 
 
 def test_delete_shots():
-    client.post("/shot", json={"x_mm": 1.0, "y_mm": 1.0})
+    client.post("/shot", json={
+        "x_px": 1241.0,
+        "y_px": 1755.0,
+        "timestamp": "2026-05-06T10:34:45Z",
+        "metadata": {"target_type": "TRON"},
+    })
     r = client.delete("/shots")
     assert r.status_code == 204
     r2 = client.get("/latest")
@@ -99,5 +121,37 @@ def test_delete_shots():
 
 
 def test_invalid_payload_rejected():
-    r = client.post("/shot", json={"x_mm": "bad", "y_mm": 0})
+    r = client.post("/shot", json={"x_px": "bad", "y_px": 0})
     assert r.status_code == 422
+
+
+def test_post_ipsc_pixel_shot_scores_polygon():
+    r = client.post(
+        "/shot",
+        json={
+            "x_px": 1200.0,
+            "y_px": 1500.0,
+            "timestamp": "2026-05-06T10:35:45Z",
+            "metadata": {"target_type": "IPSC"},
+        },
+    )
+    assert r.status_code == 201
+    body = r.json()
+    assert body["metadata"]["target_type"] == "IPSC"
+    assert body["score"] > 0
+
+
+def test_post_nguoi_pixel_shot_scores_contour():
+    r = client.post(
+        "/shot",
+        json={
+            "x_px": 1225.0,
+            "y_px": 1200.0,
+            "timestamp": "2026-05-06T10:36:45Z",
+            "metadata": {"target_type": "NGUOI"},
+        },
+    )
+    assert r.status_code == 201
+    body = r.json()
+    assert body["metadata"]["target_type"] == "NGUOI"
+    assert body["score"] > 0

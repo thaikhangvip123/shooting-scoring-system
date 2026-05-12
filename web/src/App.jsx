@@ -5,6 +5,7 @@
  */
 
 import { Routes, Route } from 'react-router-dom';
+import { useState } from 'react';
 import Sidebar       from '@/components/layout/Sidebar';
 import Header        from '@/components/layout/Header';
 import { useShots }  from '@/hooks/useShots';
@@ -20,6 +21,7 @@ import SettingsPage  from '@/pages/SettingsPage';
 export default function App() {
   const { shots, latestShot, loading, error, wsStatus, reset } = useShots();
   const { stats, heatmap }                                       = useStats(shots.length);
+  const [targetType, setTargetType]                              = useState('TRON');
 
   return (
     <div
@@ -74,12 +76,25 @@ export default function App() {
                 <Route
                   path="/"
                   element={
-                    <DashboardPage shots={shots} latestShot={latestShot} stats={stats} />
+                    <DashboardPage
+                      shots={shots}
+                      latestShot={latestShot}
+                      stats={stats}
+                      targetType={targetType}
+                      onTargetTypeChange={setTargetType}
+                    />
                   }
                 />
                 <Route
                   path="/target"
-                  element={<TargetPage shots={shots} latestShot={latestShot} />}
+                  element={
+                    <TargetPage
+                      shots={shots}
+                      latestShot={latestShot}
+                      targetType={targetType}
+                      onTargetTypeChange={setTargetType}
+                    />
+                  }
                 />
                 <Route
                   path="/shots"
@@ -91,7 +106,14 @@ export default function App() {
                 />
                 <Route
                   path="/heatmap"
-                  element={<HeatmapPage shots={shots} heatmap={heatmap} />}
+                  element={
+                    <HeatmapPage
+                      shots={shots}
+                      heatmap={heatmap}
+                      targetType={targetType}
+                      onTargetTypeChange={setTargetType}
+                    />
+                  }
                 />
                 <Route path="/settings" element={<SettingsPage />} />
               </Routes>

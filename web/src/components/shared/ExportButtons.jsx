@@ -5,23 +5,28 @@
  */
 
 import { useState } from 'react';
-import { fmtFull, fmtMm } from '@/utils/format';
+import { fmtFull } from '@/utils/format';
 import { scoreShot, calcCEP, calcR50, calcGroupSize, radialDeviation } from '@/utils/scoring';
+
+const shotX = (shot) => Number(shot.x_px ?? shot.x_mm ?? 0);
+const shotY = (shot) => Number(shot.y_px ?? shot.y_mm ?? 0);
 
 // ─── CSV helper ──────────────────────────────────────────────────────────────
 
 function shotsToCSV(shots) {
-  const header = ['#', 'Timestamp', 'Score', 'Ring', 'X_mm', 'Y_mm', 'Radius_mm', 'Session'];
+  const header = ['#', 'Timestamp', 'Score', 'Ring', 'X_px', 'Y_px', 'Radius_px', 'Session'];
   const rows   = shots.map((s, i) => {
-    const { label }  = scoreShot(s.x_mm, s.y_mm);
-    const radius     = radialDeviation(s.x_mm, s.y_mm);
+    const x = shotX(s);
+    const y = shotY(s);
+    const { label }  = scoreShot(x, y);
+    const radius     = s.radius_px ?? radialDeviation(x, y);
     return [
       shots.length - i,
       fmtFull(s.timestamp),
       s.score,
       label,
-      s.x_mm?.toFixed(3),
-      s.y_mm?.toFixed(3),
+      x.toFixed(3),
+      y.toFixed(3),
       radius.toFixed(3),
       s.session_id ?? '',
     ].join(',');
@@ -58,7 +63,7 @@ async function exportPDF(shots) {
   doc.text(`Total shots: ${shots.length}`, 14, 33);
 
   // Stats
-  const radii  = shots.map((s) => radialDeviation(s.x_mm, s.y_mm));
+  const radii  = shots.map((s) => radialDeviation(shotX(s), shotY(s)));
   const cep    = calcCEP(radii);
   const r50    = calcR50(shots);
   const group  = calcGroupSize(shots);
@@ -74,9 +79,9 @@ async function exportPDF(shots) {
     startY: 47,
     head:   [['Metric', 'Value']],
     body:   [
-      ['CEP (Circular Error Probable)', fmtMm(cep)],
-      ['R50 (Group Centre Radius)',      fmtMm(r50)],
-      ['Group Size (Extreme Spread)',    fmtMm(group)],
+      ['CEP (Circular Error Probable)', `${cep.toFixed(2)} px`],
+      ['R50 (Group Centre Radius)',      `${r50.toFixed(2)} px`],
+      ['Group Size (Extreme Spread)',    `${group.toFixed(2)} px`],
       ['Average Score',                 avg.toFixed(2)],
       ['Total Score',                   String(shots.reduce((s, sh) => s + (sh.score ?? 0), 0))],
     ],
@@ -87,23 +92,25 @@ async function exportPDF(shots) {
   });
 
   // Shot table
-  const startY = doc.lastAutoTable?.finalY + 10 ?? 120;
+  const startY = (doc.lastAutoTable?.finalY ?? 110) + 10;
   doc.setFontSize(11);
   doc.text('Shot Details', 14, startY);
 
   auto(doc, {
     startY: startY + 4,
-    head:   [['#', 'Time', 'Score', 'Ring', 'X (mm)', 'Y (mm)', 'R (mm)']],
+    head:   [['#', 'Time', 'Score', 'Ring', 'X (px)', 'Y (px)', 'R (px)']],
     body:   shots.map((s, i) => {
-      const { label } = scoreShot(s.x_mm, s.y_mm);
-      const r         = radialDeviation(s.x_mm, s.y_mm);
+      const x = shotX(s);
+      const y = shotY(s);
+      const { label } = scoreShot(x, y);
+      const r         = s.radius_px ?? radialDeviation(x, y);
       return [
         shots.length - i,
         fmtFull(s.timestamp),
         s.score,
         label,
-        s.x_mm?.toFixed(2),
-        s.y_mm?.toFixed(2),
+        x.toFixed(2),
+        y.toFixed(2),
         r.toFixed(2),
       ];
     }),

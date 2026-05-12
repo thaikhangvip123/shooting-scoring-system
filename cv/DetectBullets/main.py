@@ -8,11 +8,13 @@ import time
 from config import *
 from state import app_tracked_state, app_bg_state
 from worker import target_worker_thread
+from evaluation import create_detection_recorder_from_env
 
 if __name__ == '__main__':
     aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
     detector = aruco.ArucoDetector(aruco_dict, aruco.DetectorParameters())
     target_sets = {"BIA_TRON": [0,1,2,3], "BIA_IPSC": [4,5,6,7], "BIA_NGUOI": [8,9,10,11]}
+    recorder = create_detection_recorder_from_env()
 
     input_queues = {name: queue.Queue(maxsize=2) for name in target_sets}
     output_queue = queue.Queue(maxsize=10)
@@ -20,7 +22,7 @@ if __name__ == '__main__':
     for name in target_sets.keys():
         t = threading.Thread(
             target=target_worker_thread, 
-            args=(name, app_tracked_state[name], app_bg_state, input_queues[name], output_queue)
+            args=(name, app_tracked_state[name], app_bg_state, input_queues[name], output_queue, recorder)
         )
         t.daemon = True
         t.start()

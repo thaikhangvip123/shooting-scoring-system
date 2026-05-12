@@ -122,17 +122,34 @@ CV Module sends POST /shot
     "y_mm": 8.7,
     "timestamp": "2026-05-06T10:30:45Z",
     "session_id": "session_abc123",
-    "metadata": { ... }
+    "metadata": {
+        "target_type": "TRON",  ← Specifies scoring type
+        "frame_id": 1024,
+        "confidence": 0.98
+    }
 }
         ↓
 [Shots Router - POST /shot]
         ↓
 [Shot Service - register_shot()]
     ├─ Validate coordinates (finite numbers)
-    ├─ Score calculation
-    │   └─ Compute radius = sqrt(x² + y²)
-    │   └─ Find ring from RING_TABLE (10 rings + miss)
-    │   └─ Return (score, ring_label, radius_mm)
+    ├─ Score calculation (based on target_type)
+    │   ├─ TRON (Circular):
+    │   │   └─ Compute radius = sqrt(x² + y²)
+    │   │   └─ Find ring from RING_TABLE (10 rings + miss)
+    │   │   └─ Return (score, ring_label, radius_mm)
+    │   │
+    │   ├─ IPSC (Polygon Zones):
+    │   │   └─ Load polygons from polygon.txt
+    │   │   └─ Use cv2.pointPolygonTest() for hit detection
+    │   │   └─ Find matching polygon zone
+    │   │   └─ Return (score, zone_name, polygon_id)
+    │   │
+    │   └─ NGUOI (Anatomical Contours):
+    │       └─ Load contours from Nguoi_contours.txt
+    │       └─ Use cv2.pointPolygonTest() for each contour
+    │       └─ If in multiple contours, use SMALLEST (innermost)
+    │       └─ Return (score, zone_description, contour_id)
     │
     ├─ Duplicate Detection
     │   └─ If shot within 2mm of previous shot
@@ -155,13 +172,23 @@ Storage: Firestore Database
     "x_mm": -15.3,
     "y_mm": 8.7,
     "score": 8,
-    "ring": "8",
-    "radius_mm": 67.2,
+    "ring": "8",              ← varies by target type
+    "radius_mm": 67.2,        ← populated for TRON only
+    "zone_id": null,          ← populated for IPSC only
+    "contour_id": null,       ← populated for NGUOI only
+    "target_type": "TRON",
     "timestamp": "2026-05-06T10:30:45Z",
     "session_id": "session_abc123",
     "created_at": "2026-05-06T10:30:45Z"
 }
 ```
+
+**Multi-Target Scoring Systems**:
+
+The system supports **3 different target types**, each with distinct scoring logic:
+
+#### **1. BIA_TRON (Circular Target)** - Concentric Rings
+Based on Euclidean distance from center point.
 
 **Ring Scoring Table** (via [shot_service.py](backend/services/shot_service.py)):
 ```
@@ -179,6 +206,145 @@ Radius (mm) | Score | Ring Label
 ≤ 202.5     |   2   | 2
 ≤ 225.0     |   1   | 1
 >  225.0    |   0   | M (Miss)
+```
+
+**Calculation Logic**:
+```python
+def compute_score_tron(x_mm: float, y_mm: float) -> tuple[int, str, float]:
+    radius = sqrt(x_mm² + y_mm²)
+    for max_radius, score, label in RING_TABLE:
+        if radius <= max_radius:
+            return (score, label, radius)
+    return (0, "M", radius)  # Miss
+```
+
+**File Reference**: [Scoring/Tron/TronShootingTest.py](cv/Scoring/Tron/TronShootingTest.py)
+
+---
+
+#### **2. BIA_IPSC (IPSC Standard Target)** - Polygon-Based Zones
+Uses polygon-defined scoring zones commonly used in IPSC competitions.
+
+**Scoring Map** (from [IPSCShootingTest.py](cv/Scoring/IPSC/IPSCShootingTest.py)):
+```
+Zone Index | Score | Zone Type
+──────────────────────────────
+0          |  10   | A-zone (highest score)
+1          |   5   | C-zone (mid score)
+2          |   3   | D-zone (low score)
+3          |  10   | A-zone (secondary)
+4          |   7   | B-zone (body hit)
+Outside    |   0   | Miss
+```
+
+**Calculation Logic**:
+```python
+def compute_score_ipsc(point: tuple) -> int:
+    # Load polygons from polygon.txt
+    polygons = load_polygons("IPSC/polygon.txt")
+    scores = [10, 5, 3, 10, 7]
+    
+    for i, polygon in enumerate(polygons):
+        # cv2.pointPolygonTest: returns >= 0 if point inside polygon
+        if cv2.pointPolygonTest(polygon, point, False) >= 0:
+            return scores[i]
+    
+    return 0  # Miss
+```
+
+**Key Features**:
+- Polygon definitions stored in [polygon.txt](cv/Scoring/IPSC/polygon.txt)
+- Each polygon defines a scoring zone
+- Point-in-polygon detection using OpenCV
+- Scoring reflects IPSC competition standards (A/B/C/D zones)
+- Used for practical shooting courses
+
+**File Reference**: [Scoring/IPSC/IPSCShootingTest.py](cv/Scoring/IPSC/IPSCShootingTest.py)
+
+---
+
+#### **3. BIA_NGUOI (Human Silhouette Target)** - Nested Contours
+Uses contour-based zones representing vital areas on a human silhouette.
+
+**Scoring Map** (from [NguoiShooting.py](cv/Scoring/Nguoi/NguoiShooting.py)):
+```
+Contour Level | Score | Zone Description
+─────────────────────────────────────────
+0 (outer)     |   6   | Body/limbs area
+1             |   7   | Lower torso
+2             |   8   | Upper torso
+3             |   9   | Chest/vital area
+4             |   9   | Heart/critical area
+5             |  10   | Head/critical area
+6 (inner)     |  10   | Primary vital zone
+Outside       |   0   | Miss
+```
+
+**Calculation Logic**:
+```python
+def compute_score_nguoi(point: tuple) -> int:
+    # Load contours from Nguoi_contours.txt
+    contours = load_contours("Nguoi/Nguoi_contours.txt")
+    scores = [6, 7, 8, 9, 9, 10, 10]
+    
+    best_score = 0
+    smallest_area = infinity
+    
+    for i, contour in enumerate(contours):
+        # Check if point is inside this contour
+        if cv2.pointPolygonTest(contour, point, False) >= 0:
+            area = cv2.contourArea(contour)
+            
+            # If point is in multiple contours, use SMALLEST (innermost)
+            if area < smallest_area:
+                smallest_area = area
+                best_score = scores[i]
+    
+    return best_score  # 0 if outside all contours
+```
+
+**Key Features**:
+- Nested contours representing anatomical zones
+- Higher scores for more critical/central zones
+- Innermost zone (smallest area) takes precedence
+- Contour definitions stored in [Nguoi_contours.txt](cv/Scoring/Nguoi/Nguoi_contours.txt)
+- Realistic scoring based on injury severity
+- Used for realistic tactical training scenarios
+
+**File Reference**: [Scoring/Nguoi/NguoiShooting.py](cv/Scoring/Nguoi/NguoiShooting.py)
+
+---
+
+#### **Backend Target Selection**
+
+The POST /shot endpoint automatically routes to the correct scoring function based on the `target_type` metadata field:
+
+```python
+async def register_shot(payload: ShotCreate) -> ShotResponse:
+    x_mm = payload.x_mm
+    y_mm = payload.y_mm
+    target_type = payload.metadata.get("target_type", "TRON")
+    
+    # Route to appropriate scoring function
+    if target_type == "IPSC":
+        score, label, metadata = compute_score_ipsc((x_mm, y_mm))
+    elif target_type == "NGUOI":
+        score, label, metadata = compute_score_nguoi((x_mm, y_mm))
+    else:  # Default to TRON
+        score, label, radius = compute_score_tron(x_mm, y_mm)
+        metadata = {"radius_mm": radius}
+    
+    # ... rest of validation, deduplication, persistence
+```
+
+**Expected Metadata Format**:
+```json
+{
+    "target_type": "TRON|IPSC|NGUOI",
+    "frame_id": 1024,
+    "confidence": 0.98,
+    "...other CV metadata...": "..."
+}
 ```
 
 **Key Functions**:
@@ -381,10 +547,41 @@ class ShotHistoryResponse(BaseModel):
 
 ### Scoring Service Features
 
-**1. Ring Scoring**
-- 11 distinct scoring rings (X, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1) + Miss
-- Based on Euclidean distance from center
-- Follows IPSC/standard 10-ring geometry
+**1. Multi-Target Scoring Systems**
+
+The backend supports three distinct target types with different scoring logic:
+
+| Target Type | Geometry | Scoring Method | Use Case |
+|------------|----------|----------------|----------|
+| **TRON** | Concentric circles | Distance-based rings (10-1 + Miss) | Traditional circular targets, Olympic shooting |
+| **IPSC** | Polygon zones | Point-in-polygon detection | Practical shooting, competition zones (A/B/C/D) |
+| **NGUOI** | Nested contours | Anatomical hit zones | Tactical training, human silhouette |
+
+**TRON Scoring**:
+- 11 scoring rings (X, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1) + Miss
+- Based on Euclidean distance: `radius = sqrt(x² + y²)`
+- Each ring has maximum radius threshold
+- Returns: (score 0-10, ring_label, radius_mm)
+
+**IPSC Scoring**:
+- 5 polygon-based zones with scores: [10, 5, 3, 10, 7]
+- Uses OpenCV `pointPolygonTest()` for hit detection
+- Polygons loaded from [polygon.txt](cv/Scoring/IPSC/polygon.txt)
+- Common scoring: A-zone (10), B-zone (7), C-zone (5), D-zone (3)
+- Returns: (score 0-10, zone_name, polygon_id)
+
+**NGUOI Scoring**:
+- 7 nested anatomical contours with scores: [6, 7, 8, 9, 9, 10, 10]
+- Uses contour-based zones representing human vital areas
+- When point is inside multiple contours, uses **innermost** (smallest area)
+- Contours loaded from [Nguoi_contours.txt](cv/Scoring/Nguoi/Nguoi_contours.txt)
+- Returns: (score 0-10, zone_description, contour_id)
+
+**Target Selection**:
+- Determined by `metadata.target_type` in incoming shot
+- Routes to appropriate scoring function
+- Falls back to TRON if unspecified
+- Multiple targets can be processed simultaneously (thread-safe)
 
 **2. Duplicate Detection** (via [DuplicateGuard](backend/services/shot_service.py))
 - **Spatial threshold**: 2.0 mm minimum distance

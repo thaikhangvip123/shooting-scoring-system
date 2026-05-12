@@ -31,7 +31,7 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState(loadSettings);
   const [saved,    setSaved]    = useState(false);
   const [shotJson, setShotJson] = useState(() =>
-    JSON.stringify({ x_mm: 10.5, y_mm: -3.2, session_id: 'demo', metadata: { source: 'ui' } }, null, 2)
+    JSON.stringify({ x_px: 1240, y_px: 1754, session_id: 'demo', metadata: { source: 'ui', target_type: 'TRON' } }, null, 2)
   );
   const [injecting, setInjecting] = useState(false);
   const [injectMsg, setInjectMsg] = useState(null);
@@ -143,7 +143,7 @@ export default function SettingsPage() {
           Send shot JSON (FastAPI `POST /shot`)
         </div>
         <div style={{ fontSize: 12, color: 'var(--c-text-3)', marginBottom: 10 }}>
-          Paste a `ShotCreate` payload (requires `x_mm` and `y_mm`). This will create a shot in FastAPI and broadcast it to WebSocket clients.
+          Paste a `ShotCreate` payload (requires `x_px` and `y_px`). This will create a shot in FastAPI and broadcast it to WebSocket clients.
         </div>
 
         <textarea

@@ -21,6 +21,9 @@ export const RINGS = [
 
 export const TARGET_RADIUS_MM = 225; // outermost scoring ring
 
+const pointX = (p) => Number(p?.x_px ?? p?.x_mm ?? p?.x ?? 0);
+const pointY = (p) => Number(p?.y_px ?? p?.y_mm ?? p?.y ?? 0);
+
 /**
  * Euclidean distance from target centre (0,0) in millimetres.
  * @param {number} x
@@ -66,9 +69,9 @@ export const calcCEP = (radii) => {
  */
 export const calcR50 = (shots) => {
   if (!shots.length) return 0;
-  const mx = shots.reduce((s, p) => s + p.x_mm, 0) / shots.length;
-  const my = shots.reduce((s, p) => s + p.y_mm, 0) / shots.length;
-  const radii = shots.map((p) => radialDeviation(p.x_mm - mx, p.y_mm - my));
+  const mx = shots.reduce((s, p) => s + pointX(p), 0) / shots.length;
+  const my = shots.reduce((s, p) => s + pointY(p), 0) / shots.length;
+  const radii = shots.map((p) => radialDeviation(pointX(p) - mx, pointY(p) - my));
   return calcCEP(radii);
 };
 
@@ -83,8 +86,8 @@ export const calcGroupSize = (shots) => {
   for (let i = 0; i < shots.length; i++) {
     for (let j = i + 1; j < shots.length; j++) {
       const d = radialDeviation(
-        shots[i].x_mm - shots[j].x_mm,
-        shots[i].y_mm - shots[j].y_mm
+        pointX(shots[i]) - pointX(shots[j]),
+        pointY(shots[i]) - pointY(shots[j])
       );
       if (d > max) max = d;
     }
@@ -100,8 +103,8 @@ export const calcGroupSize = (shots) => {
 export const calcMeanPOI = (shots) => {
   if (!shots.length) return { x: 0, y: 0 };
   return {
-    x: shots.reduce((s, p) => s + p.x_mm, 0) / shots.length,
-    y: shots.reduce((s, p) => s + p.y_mm, 0) / shots.length,
+    x: shots.reduce((s, p) => s + pointX(p), 0) / shots.length,
+    y: shots.reduce((s, p) => s + pointY(p), 0) / shots.length,
   };
 };
 

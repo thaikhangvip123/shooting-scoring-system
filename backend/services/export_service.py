@@ -21,7 +21,7 @@ from backend.services.analytics_service import (
 
 # ─── CSV ──────────────────────────────────────────────────────────────────────
 
-HEADERS = ["#", "Timestamp", "Score", "Ring", "X_mm", "Y_mm", "Radius_mm", "Session"]
+HEADERS = ["#", "Timestamp", "Score", "Ring", "X_px", "Y_px", "Radius_px", "Session"]
 
 
 def shots_to_csv(shots: list[ShotRecord]) -> bytes:
@@ -34,9 +34,9 @@ def shots_to_csv(shots: list[ShotRecord]) -> bytes:
             s.timestamp.isoformat(),
             s.score,
             s.ring,
-            round(s.x_mm,    3),
-            round(s.y_mm,    3),
-            round(s.radius_mm, 3),
+            round(s.x_px, 3),
+            round(s.y_px, 3),
+            round(s.radius_px or 0, 3),
             s.session_id or "",
         ])
     return buf.getvalue().encode()
@@ -79,10 +79,10 @@ def _summary_table(pdf: ReportPDF, shots: list[ShotRecord]) -> None:
         ("Total shots",                 str(len(shots))),
         ("Total score",                 str(total)),
         ("Average score",               f"{avg:.2f}"),
-        ("CEP (Circular Error Probable)", f"{cep:.2f} mm"),
-        ("R50 (group centre radius)",    f"{r50:.2f} mm"),
-        ("Group size (extreme spread)",  f"{group:.2f} mm"),
-        ("Mean POI (X / Y)",            f"{poi.x_mm:.2f} mm / {poi.y_mm:.2f} mm"),
+        ("CEP (Circular Error Probable)", f"{cep:.2f} px"),
+        ("R50 (group centre radius)",    f"{r50:.2f} px"),
+        ("Group size (extreme spread)",  f"{group:.2f} px"),
+        ("Mean POI (X / Y)",            f"{poi.x_mm:.2f} px / {poi.y_mm:.2f} px"),
     ]
 
     pdf.set_font("Helvetica", "B", 10)
@@ -99,7 +99,7 @@ def _summary_table(pdf: ReportPDF, shots: list[ShotRecord]) -> None:
 
 
 def _shots_table(pdf: ReportPDF, shots: list[ShotRecord]) -> None:
-    cols   = ["#", "Timestamp", "Score", "Ring", "X (mm)", "Y (mm)", "R (mm)"]
+    cols   = ["#", "Timestamp", "Score", "Ring", "X (px)", "Y (px)", "R (px)"]
     widths = [10,   44,          14,      12,     24,        24,       24]
 
     pdf.set_font("Helvetica", "B", 9)
@@ -117,9 +117,9 @@ def _shots_table(pdf: ReportPDF, shots: list[ShotRecord]) -> None:
             s.timestamp.strftime("%H:%M:%S"),
             str(s.score),
             s.ring,
-            f"{s.x_mm:.2f}",
-            f"{s.y_mm:.2f}",
-            f"{s.radius_mm:.2f}",
+            f"{s.x_px:.2f}",
+            f"{s.y_px:.2f}",
+            f"{(s.radius_px or 0):.2f}",
         ]
         for val, w in zip(row, widths):
             pdf.cell(w, 6, val, border=1, fill=fill)
