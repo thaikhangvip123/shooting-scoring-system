@@ -76,6 +76,8 @@ export const openShotsSocket = (onShot, onError) => {
   ws.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data);
+      // Backend sends control messages too; don't treat them as shots.
+      if (data?.type === 'connected' || data?.type === 'ping') return;
       onShot(data);
     } catch (e) {
       console.warn('[WS] Unparseable message', event.data);

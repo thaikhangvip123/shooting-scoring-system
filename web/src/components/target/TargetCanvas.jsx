@@ -1,213 +1,198 @@
 /**
  * components/target/TargetCanvas.jsx
- * Renders a full scoring target as SVG.
- * Shots are plotted in real-world mm coordinates normalised to the SVG viewport.
- * Includes: scoring rings, X/Y crosshairs, hit markers, latest-shot highlight.
+ * Fixed 500px SVG target renderer for TRON, IPSC, and NGUOI targets.
  */
 
 import { useMemo, useState } from 'react';
-import { RINGS, TARGET_RADIUS_MM, scoreShot } from '@/utils/scoring';
-import { fmtMm, fmtTime } from '@/utils/format';
+import { fmtTime } from '@/utils/format';
+import {
+  TARGET_CANVAS_SIZE,
+  TARGET_TYPES,
+  cvPointToCanvas,
+  scoreTargetShot,
+  shotTargetType,
+  shotToCanvas,
+  targetGeometry,
+} from '@/utils/targetGeometry';
 import HitMarker from './HitMarker';
 import '@/styles/target.css';
 
-const SVG_RADIUS = 240; // px – SVG coordinate radius
-const SVG_SIZE   = SVG_RADIUS * 2 + 20; // full canvas size (500px)
-const CX         = SVG_SIZE / 2;        // centre x
-const CY         = SVG_SIZE / 2;        // centre y
+const SIZE = TARGET_CANVAS_SIZE;
+const TRON_CENTER = cvPointToCanvas({ x: 1240, y: 1754 });
+const IMAGE_SCALE = TARGET_CANVAS_SIZE / 3508;
 
-/** Scale mm → SVG pixels */
-const mmToPx = (mm) => (mm / TARGET_RADIUS_MM) * SVG_RADIUS;
+function pointsToPath(points) {
+  return points
+    .map((point, index) => {
+      const canvasPoint = cvPointToCanvas(point);
+      return `${index === 0 ? 'M' : 'L'} ${canvasPoint.x.toFixed(2)} ${canvasPoint.y.toFixed(2)}`;
+    })
+    .join(' ');
+}
 
-export default function TargetCanvas({ shots = [], latestShot = null, showMeanPOI = true }) {
-  const [tooltip, setTooltip] = useState(null);
-
-  // Build ring props once
-  const rings = useMemo(
-    () =>
-      [...RINGS].reverse().map(([maxR, score, label, color]) => ({
-        r:     mmToPx(maxR),
-        score,
-        label,
-        color,
-      })),
-    []
+function CircularTarget() {
+  return (
+    <>
+      <circle cx={TRON_CENTER.x} cy={TRON_CENTER.y} r={248} fill="#090b0f" />
+      {targetGeometry.TRON.zones.map((zone) => {
+        const radius = zone.radiusPx * IMAGE_SCALE;
+        return (
+          <circle
+            key={zone.id}
+            cx={TRON_CENTER.x}
+            cy={TRON_CENTER.y}
+            r={radius}
+            fill={zone.color}
+            fillOpacity={0.07}
+            stroke={zone.color}
+            strokeOpacity={0.38}
+            strokeWidth={1}
+          />
+        );
+      })}
+      <circle cx={TRON_CENTER.x} cy={TRON_CENTER.y} r={2.5} fill="rgba(255,255,255,0.48)" />
+    </>
   );
+}
 
-  // Deduplicate by shot id
-  const plotted = useMemo(() => {
-    const seen = new Set();
-    return shots.filter((s) => {
-      if (seen.has(s.id)) return false;
-      seen.add(s.id);
-      return true;
-    });
-  }, [shots]);
-
-  // Mean POI
-  const meanPOI = useMemo(() => {
-    if (!plotted.length) return null;
-    const mx = plotted.reduce((a, s) => a + s.x_mm, 0) / plotted.length;
-    const my = plotted.reduce((a, s) => a + s.y_mm, 0) / plotted.length;
-    return { cx: CX + mmToPx(mx), cy: CY - mmToPx(my) };
-  }, [plotted]);
+function ZoneTarget({ targetType }) {
+  const zones = targetGeometry[targetType]?.zones ?? [];
 
   return (
-    <div style={{ position: 'relative', width: '100%', maxWidth: SVG_SIZE }}>
+    <>
+      <rect x={0} y={0} width={SIZE} height={SIZE} fill="#090b0f" />
+      {zones.map((zone, index) => (
+        <path
+          key={zone.id}
+          d={`${pointsToPath(zone.points)} Z`}
+          fill={zone.color}
+          fillOpacity={0.06 + index * 0.018}
+          stroke={zone.color}
+          strokeOpacity={0.55}
+          strokeWidth={1.2}
+          vectorEffect="non-scaling-stroke"
+        />
+      ))}
+    </>
+  );
+}
+
+export default function TargetCanvas({
+  shots = [],
+  latestShot = null,
+  showMeanPOI = true,
+  targetType = 'TRON',
+}) {
+  const [tooltip, setTooltip] = useState(null);
+  const normalizedTargetType = TARGET_TYPES[targetType] ? targetType : 'TRON';
+
+  const plotted = useMemo(() => {
+    const seen = new Set();
+    return shots.filter((shot, index) => {
+      if (shotTargetType(shot) !== normalizedTargetType) return false;
+      const id = shot.id ?? shot.shot_id ?? `${shot.timestamp ?? 'shot'}-${index}`;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+  }, [normalizedTargetType, shots]);
+
+  const meanPOI = useMemo(() => {
+    if (!plotted.length) return null;
+    const mx = plotted.reduce((a, s) => a + Number(s.x_px ?? s.x_mm ?? 0), 0) / plotted.length;
+    const my = plotted.reduce((a, s) => a + Number(s.y_px ?? s.y_mm ?? 0), 0) / plotted.length;
+    return shotToCanvas({ x_px: mx, y_px: my }, normalizedTargetType);
+  }, [normalizedTargetType, plotted]);
+
+  return (
+    <div className="target-canvas-box">
       <svg
         className="target-svg"
-        viewBox={`0 0 ${SVG_SIZE} ${SVG_SIZE}`}
-        width="100%"
-        style={{ display: 'block' }}
-        aria-label="Shooting target"
+        viewBox={`0 0 ${SIZE} ${SIZE}`}
+        width={SIZE}
+        height={SIZE}
+        aria-label={`${TARGET_TYPES[normalizedTargetType].title} target`}
       >
-        {/* ── Background ── */}
-        <circle cx={CX} cy={CY} r={SVG_RADIUS + 8} fill="#111318" />
+        {normalizedTargetType === 'TRON' ? (
+          <CircularTarget />
+        ) : (
+          <ZoneTarget targetType={normalizedTargetType} />
+        )}
 
-        {/* ── Scoring rings (outside-in) ── */}
-        {rings.map(({ r, score, label, color }) => (
-          <g key={label}>
-            <circle
-              cx={CX} cy={CY} r={r}
-              fill={color}
-              fillOpacity={0.07}
-              stroke={color}
-              strokeOpacity={0.3}
-              strokeWidth={0.5}
-            />
-            {/* Score label at 3 o'clock */}
-            <text
-              className="target-ring-label"
-              x={CX + r - 4}
-              y={CY + 4}
-              textAnchor="end"
-              fontSize={9}
-              fill={color}
-              fillOpacity={0.7}
-            >
-              {score}
-            </text>
-          </g>
-        ))}
-
-        {/* ── X-ring highlight ── */}
-        <circle
-          cx={CX} cy={CY}
-          r={mmToPx(RINGS[0][0])}
-          fill="none"
-          stroke="#e8f4ff"
-          strokeWidth={1}
-          strokeOpacity={0.5}
-        />
-
-        {/* ── Crosshairs ── */}
-        <line className="target-crosshair" x1={CX} y1={CY - SVG_RADIUS} x2={CX} y2={CY + SVG_RADIUS} />
-        <line className="target-crosshair" x1={CX - SVG_RADIUS} y1={CY} x2={CX + SVG_RADIUS} y2={CY} />
-
-        {/* ── Outer ring border ── */}
-        <circle
-          cx={CX} cy={CY} r={SVG_RADIUS}
-          fill="none"
-          stroke="rgba(255,255,255,0.18)"
-          strokeWidth={1.5}
-        />
-
-        {/* ── Centre dot ── */}
-        <circle cx={CX} cy={CY} r={2} fill="rgba(255,255,255,0.4)" />
-
-        {/* ── Mean POI marker ── */}
         {showMeanPOI && meanPOI && plotted.length > 1 && (
           <g>
             <line
-              x1={meanPOI.cx - 8} y1={meanPOI.cy}
-              x2={meanPOI.cx + 8} y2={meanPOI.cy}
-              stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="3 2"
+              x1={meanPOI.x - 8}
+              y1={meanPOI.y}
+              x2={meanPOI.x + 8}
+              y2={meanPOI.y}
+              stroke="#f59e0b"
+              strokeWidth={1.5}
+              strokeDasharray="3 2"
             />
             <line
-              x1={meanPOI.cx} y1={meanPOI.cy - 8}
-              x2={meanPOI.cx} y2={meanPOI.cy + 8}
-              stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="3 2"
+              x1={meanPOI.x}
+              y1={meanPOI.y - 8}
+              x2={meanPOI.x}
+              y2={meanPOI.y + 8}
+              stroke="#f59e0b"
+              strokeWidth={1.5}
+              strokeDasharray="3 2"
             />
-            <circle cx={meanPOI.cx} cy={meanPOI.cy} r={3} fill="#f59e0b" fillOpacity={0.6} />
+            <circle cx={meanPOI.x} cy={meanPOI.y} r={3} fill="#f59e0b" fillOpacity={0.72} />
           </g>
         )}
 
-        {/* ── Hit markers ── */}
-        {plotted.map((shot) => {
-          const isLatest = latestShot?.id === shot.id;
-          const sx = CX + mmToPx(shot.x_mm);
-          const sy = CY - mmToPx(shot.y_mm); // Y flipped (SVG top-down)
-          const { color } = scoreShot(shot.x_mm, shot.y_mm);
+        {plotted.map((shot, index) => {
+          const id = shot.id ?? shot.shot_id ?? `${shot.timestamp ?? 'shot'}-${index}`;
+          const latestId = latestShot?.id ?? latestShot?.shot_id;
+          const isLatest = latestId === id;
+          const point = shotToCanvas(shot, normalizedTargetType);
+          const score = scoreTargetShot(shot, normalizedTargetType);
 
           return (
             <HitMarker
-              key={shot.id}
-              cx={sx}
-              cy={sy}
-              color={color}
-              score={shot.score}
+              key={id}
+              cx={point.x}
+              cy={point.y}
+              color={score.color}
+              score={shot.score ?? score.score}
               isLatest={isLatest}
-              onMouseEnter={() =>
-                setTooltip({
-                  x: sx, y: sy,
-                  shot,
-                })
-              }
+              onMouseEnter={() => setTooltip({ x: point.x, y: point.y, shot, score })}
               onMouseLeave={() => setTooltip(null)}
             />
           );
         })}
 
-        {/* ── Tooltip ── */}
         {tooltip && (() => {
-          const { x, y, shot } = tooltip;
-          const { label } = scoreShot(shot.x_mm, shot.y_mm);
-          const tx = x > SVG_SIZE / 2 ? x - 100 : x + 10;
-          const ty = y > SVG_SIZE / 2 ? y - 56  : y + 10;
+          const { x, y, shot, score } = tooltip;
+          const tx = x > SIZE / 2 ? x - 110 : x + 10;
+          const ty = y > SIZE / 2 ? y - 58 : y + 10;
           return (
             <g>
               <rect
-                x={tx} y={ty} width={90} height={50}
+                x={tx}
+                y={ty}
+                width={100}
+                height={52}
                 rx={5}
                 fill="#0d0f14"
                 stroke="rgba(255,255,255,0.15)"
                 strokeWidth={0.5}
               />
-              <text x={tx + 8} y={ty + 16} fontSize={11} fill="#e8eaf0" fontWeight={600}>
-                Score: {shot.score} ({label})
+              <text x={tx + 8} y={ty + 17} fontSize={11} fill="#e8eaf0" fontWeight={600}>
+                Score: {shot.score ?? score.score} ({score.label})
               </text>
-              <text x={tx + 8} y={ty + 30} fontSize={10} fill="#9499b0">
-                X: {fmtMm(shot.x_mm)}  Y: {fmtMm(shot.y_mm)}
+              <text x={tx + 8} y={ty + 31} fontSize={10} fill="#9499b0">
+                X: {Number(shot.x_px ?? shot.x_mm ?? 0).toFixed(2)} px Y: {Number(shot.y_px ?? shot.y_mm ?? 0).toFixed(2)} px
               </text>
-              <text x={tx + 8} y={ty + 44} fontSize={10} fill="#9499b0">
+              <text x={tx + 8} y={ty + 45} fontSize={10} fill="#9499b0">
                 {fmtTime(shot.timestamp)}
               </text>
             </g>
           );
         })()}
       </svg>
-
-      {/* Axis labels */}
-      <div style={{
-        position: 'absolute',
-        top: '50%',
-        left: 4,
-        transform: 'translateY(-50%)',
-        fontSize: 10,
-        color: 'var(--c-text-3)',
-      }}>
-        Y
-      </div>
-      <div style={{
-        position: 'absolute',
-        bottom: 4,
-        right: '50%',
-        transform: 'translateX(50%)',
-        fontSize: 10,
-        color: 'var(--c-text-3)',
-      }}>
-        X
-      </div>
     </div>
   );
 }

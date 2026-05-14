@@ -1,5 +1,6 @@
 dependencies:
-  esp_lcd_sh8601: "^2.0.1"
+  esp_lcd_ili9341: "^2.0.2"
   idf:
     version: '>=4.1.0'
   lvgl/lvgl: "^8.4.0"
+  espressif/esp_websocket_client: "1.7.0"

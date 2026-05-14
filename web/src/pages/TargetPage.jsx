@@ -5,12 +5,16 @@
 
 import { useState } from 'react';
 import TargetCanvas from '@/components/target/TargetCanvas';
+import TargetTypeSelector from '@/components/target/TargetTypeSelector';
+import { shotTargetType } from '@/utils/targetGeometry';
 
-export default function TargetPage({ shots, latestShot }) {
+export default function TargetPage({ shots, latestShot, targetType, onTargetTypeChange }) {
   const [showMeanPOI, setShowMeanPOI] = useState(true);
   const [maxShots,    setMaxShots]    = useState(50);
 
-  const visible = shots.slice(0, maxShots);
+  const targetShots = shots.filter((shot) => shotTargetType(shot) === targetType);
+  const visible = targetShots.slice(0, maxShots);
+  const latestTargetShot = targetShots[0] ?? null;
 
   return (
     <div style={{ display: 'flex', gap: 20, height: '100%', minHeight: 0 }}>
@@ -24,9 +28,15 @@ export default function TargetPage({ shots, latestShot }) {
           justifyContent: 'center',
           padding: 24,
           minWidth: 0,
+          overflow: 'auto',
         }}
       >
-        <TargetCanvas shots={visible} latestShot={latestShot} showMeanPOI={showMeanPOI} />
+        <TargetCanvas
+          shots={visible}
+          latestShot={latestTargetShot}
+          showMeanPOI={showMeanPOI}
+          targetType={targetType}
+        />
       </div>
 
       {/* Controls panel */}
@@ -34,8 +44,10 @@ export default function TargetPage({ shots, latestShot }) {
         <div className="card" style={{ padding: 18 }}>
           <div className="card-title" style={{ marginBottom: 14 }}>Display</div>
 
+          <TargetTypeSelector value={targetType} onChange={onTargetTypeChange} />
+
           {/* Shots to show */}
-          <label style={{ fontSize: 12, color: 'var(--c-text-2)', display: 'block', marginBottom: 4 }}>
+          <label style={{ fontSize: 12, color: 'var(--c-text-2)', display: 'block', marginTop: 16, marginBottom: 4 }}>
             Show last {maxShots} shots
           </label>
           <input
@@ -77,20 +89,20 @@ export default function TargetPage({ shots, latestShot }) {
             {visible.length}
           </div>
           <div style={{ fontSize: 11, color: 'var(--c-text-3)', marginTop: 2 }}>
-            of {shots.length} total
+            of {targetShots.length} target shots
           </div>
         </div>
 
         {/* Latest shot details */}
-        {latestShot && (
+        {latestTargetShot && (
           <div className="card" style={{ padding: 18 }}>
             <div className="card-title" style={{ marginBottom: 10 }}>Latest</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12 }}>
               {[
-                ['Score',    latestShot.score],
-                ['X',        `${latestShot.x_mm?.toFixed(2)} mm`],
-                ['Y',        `${latestShot.y_mm?.toFixed(2)} mm`],
-                ['Radius',   `${Math.sqrt(latestShot.x_mm**2+latestShot.y_mm**2).toFixed(2)} mm`],
+                ['Score',    latestTargetShot.score],
+                ['X',        `${Number(latestTargetShot.x_px ?? latestTargetShot.x_mm ?? 0).toFixed(2)} px`],
+                ['Y',        `${Number(latestTargetShot.y_px ?? latestTargetShot.y_mm ?? 0).toFixed(2)} px`],
+                ['Radius',   latestTargetShot.radius_px != null ? `${Number(latestTargetShot.radius_px).toFixed(2)} px` : '—'],
               ].map(([k, v]) => (
                 <div key={k} style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: 'var(--c-text-3)' }}>{k}</span>

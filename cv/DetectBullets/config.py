@@ -1,12 +1,12 @@
 import numpy as np
 
 # --- THAY ĐỔI BASE_DIR THÀNH ĐƯỜNG DẪN CỦA BẠN ---
-BASE_DIR = "D:/baitapxaml/HK252/DATN" 
+BASE_DIR = "E:/shooting-scoring-system/cv" 
 
-VIDEO_PATH = f"{BASE_DIR}/DetectBullet/target2.mp4"
+VIDEO_PATH = f"{BASE_DIR}/Videos/target3.mp4"
 
-PATH_IPSC_POLY = f"{BASE_DIR}/Main/shooting-scoring-system/cv/Scoring/IPSC/polygon.txt"
-PATH_NGUOI_CONT = f"{BASE_DIR}/Main/shooting-scoring-system/cv/Scoring/Nguoi/Nguoi_contours.txt"
+PATH_IPSC_POLY = f"{BASE_DIR}/Scoring/IPSC/polygon.txt"
+PATH_NGUOI_CONT = f"{BASE_DIR}/Scoring/Nguoi/Nguoi_contours.txt"
 
 # Kích thước và Tọa độ
 WIDTH, HEIGHT = 1240, 1754

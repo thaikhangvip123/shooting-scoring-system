@@ -1,279 +1,246 @@
+/**
+ * main.c — Shooting Scoring ESP32-S3 Firmware
+ *
+ * Startup sequence:
+ *  1. app_events_init()   — queues + event group
+ *  2. lv_init()           — LVGL core
+ *  3. display_init()      — SPI LCD + LVGL driver + LVGL task (Core 1)
+ *  4. ui_init()           — build screen layout
+ *  5. ui_process_queues() — register as LVGL timer so queue drain runs
+ *                           inside the LVGL task on every tick
+ *  6. button_init()       — GPIO button + debounce timers
+ *  7. wifi_init_sta()     — start WiFi connection
+ *  8. Network task        — waits for WiFi, pulls history, starts WS client
+ *
+ * Data flow:
+ *   Backend WS broadcast
+ *       → ws_client.c WS event handler (Core 0 task)
+ *           → parse JSON → enqueue shot_event_t
+ *               → ui_process_queues() (LVGL task, Core 1)
+ *                   → _add_shot_row() + _update_counters()
+ *
+ * Button (GPIO ISR → timer callbacks):
+ *   Single click → POST test shot to backend (score 1 position)
+ *   Double click → POST test shot to backend (score 8 position)
+ *   Long press   → btn_event_t(BTN_LONG_PRESS) → ui_process_queues() → ui_reset()
+ *                  + DELETE /shots via http task
+ */
+
 #include <stdio.h>
-#include <stdbool.h>
-#include "lvgl.h"
+#include <string.h>
+#include <math.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "driver/gpio.h"
-#include "esp_lcd_sh8601.h"
-#include "esp_lcd_panel_io.h"
-#include "esp_lcd_panel_ops.h"
-#include "esp_timer.h"
-#include "button_bsp.h"
+#include "freertos/event_groups.h"
+#include "esp_log.h"
+#include "esp_http_client.h"
+#include "cJSON.h"
+#include "lvgl.h"
 
-#include "lv_conf.h"
+#include "app_events/app_events.h"
+#include "display/display.h"
+#include "ui/ui.h"
+#include "wifi/wifi.h"
+#include "ws_client/ws_client.h"
+#include "http_client/http_client.h"
+#include "button/button.h"
 
-#define LCD_HOST         SPI3_HOST
-#define PIN_NUM_RST      9
-#define PIN_NUM_SCLK     10
-#define PIN_NUM_DC       11
-#define PIN_NUM_CS       12
-#define PIN_NUM_MOSI     13
+static const char *TAG = "main";
 
-#define LCD_H_RES        170
-#define LCD_V_RES        320
-#define LCD_PIXEL_CLOCK_HZ  (20 * 1000 * 1000)
-#define LCD_CMD_BITS     8
-#define LCD_PARAM_BITS   8
-#define LVGL_DRAW_BUF_LINES  (LCD_V_RES / 2)
+// ─── LVGL timer: drain queues on every LVGL tick ─────────────────────────────
+// This is called from lv_timer_handler() — already inside the LVGL task
+// with the mutex held — so all lv_* calls in ui_process_queues() are safe.
 
-// ── LCD init commands ─────────────────────────────────────────────────
-static const sh8601_lcd_init_cmd_t lcd_init_cmds[] = {
-    {0x11, NULL,              0,    120}, // SLPOUT
-    {0x3A, (uint8_t[]){0x55}, 1,      0}, // COLMOD RGB565
-    {0x53, (uint8_t[]){0x20}, 1,      0}, // WRCTRLD brightness on
-    {0xB1, (uint8_t[]){0xFF}, 1,      0}, // WRDISBV max brightness
-    {0x29, NULL,              0,     20}, // DISPON
-};
-
-esp_lcd_panel_io_handle_t  io_handle        = NULL;
-esp_lcd_panel_handle_t     lcd_panel_handle = NULL;
-static lv_disp_drv_t       disp_drv;        // static — pointer used in ISR
-
-// Global UI --------------------------------------
-static lv_obj_t *label_total_shot;
-static lv_obj_t *label_total_score;
-static lv_obj_t *shot_list;
-
-static int total_shot = 0;
-static int total_score = 0;
-static SemaphoreHandle_t lvgl_mutex;
-
-#define BTN_SINGLE_CLICK_BIT  (0x01 << 0)
-#define BTN_DOUBLE_CLICK_BIT  (0x01 << 1)
-#define BTN_LONG_PRESS_BIT    (0x01 << 2)
-
-// ── Async flush done callback ─────────────────────────────────────
-static bool IRAM_ATTR lcd_trans_done_cb(esp_lcd_panel_io_handle_t panel_io,
-                                         esp_lcd_panel_io_event_data_t *edata,
-                                         void *user_ctx)
+static void lvgl_queue_timer_cb(lv_timer_t *timer)
 {
-    lv_disp_drv_t *drv = (lv_disp_drv_t *)user_ctx;
-    lv_disp_flush_ready(drv);
-    return false;
+    ui_process_queues();
 }
 
-static void my_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *color_map)
-{
-    esp_lcd_panel_handle_t panel = (esp_lcd_panel_handle_t)drv->user_data;
-    int offsetx1 = area->x1 + 35;
-    int offsetx2 = area->x2 + 35;
-    int offsety1 = area->y1;
-    int offsety2 = area->y2;
+// ─── Test shot injection (button single/double click) ────────────────────────
+// These functions run in the button's ISR timer context (Core 0).
+// They build a minimal JSON payload and POST it to the backend.
+// The backend will broadcast it back via WebSocket → appears on screen.
 
-    esp_lcd_panel_draw_bitmap(panel, offsetx1, offsety1, offsetx2 + 1, offsety2 + 1, color_map);
+static void post_test_shot(float x_mm, float y_mm)
+{
+    char url[128];
+    snprintf(url, sizeof(url),
+             "http://%s:%d/shot",
+             CONFIG_SHOOT_BACKEND_HOST,
+             CONFIG_SHOOT_BACKEND_PORT);
+
+    // Build JSON body
+    cJSON *body = cJSON_CreateObject();
+    cJSON_AddNumberToObject(body, "x_mm",      x_mm);
+    cJSON_AddNumberToObject(body, "y_mm",      y_mm);
+    cJSON_AddStringToObject(body, "session_id", CONFIG_SHOOT_BACKEND_SESSION_ID);
+
+    cJSON *meta = cJSON_CreateObject();
+    cJSON_AddStringToObject(meta, "source", "esp32_button");
+    cJSON_AddItemToObject(body, "metadata", meta);
+
+    char *json_str = cJSON_PrintUnformatted(body);
+    cJSON_Delete(body);
+    if (!json_str) return;
+
+    esp_http_client_config_t cfg = {
+        .url        = url,
+        .method     = HTTP_METHOD_POST,
+        .timeout_ms = 5000,
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+    esp_http_client_set_post_field(client, json_str, strlen(json_str));
+
+    esp_err_t err = esp_http_client_perform(client);
+    if (err == ESP_OK) {
+        int code = esp_http_client_get_status_code(client);
+        ESP_LOGI(TAG, "Test shot POST → %d (%.1f, %.1f)", code, x_mm, y_mm);
+    } else {
+        ESP_LOGW(TAG, "Test shot POST failed: %s", esp_err_to_name(err));
+    }
+
+    esp_http_client_cleanup(client);
+    free(json_str);
 }
 
-// LGVL Tick
-static void tick_cb(void *arg)
+// ─── Network task (Core 0) ────────────────────────────────────────────────────
+// Runs after app_main returns; handles the post-WiFi network operations.
+
+static void network_task(void *arg)
 {
-    lv_tick_inc(5);
-}
-// ── lvgl_task — add mutex ─────────────────────────────────────────────────
-static void lvgl_task(void *arg)
-{
+    ESP_LOGI(TAG, "Network task started");
+
+    // ── 1. Wait for WiFi ──────────────────────────────────────────────────────
+    ui_set_status(false, false);
+
+    bool connected = wifi_wait_connected(pdMS_TO_TICKS(30000));
+    if (!connected) {
+        ESP_LOGE(TAG, "WiFi connection timed out — check SSID/password in menuconfig");
+        ui_set_status(false, false);
+        // Don't abort; the WiFi driver keeps retrying in the background.
+    } else {
+        ESP_LOGI(TAG, "WiFi connected");
+        ui_set_status(true, false);
+    }
+
+    // ── 2. Pull existing shot history ─────────────────────────────────────────
+    if (connected) {
+        http_pull_history();   // populates shot queue; LVGL task drains it
+        // Wait for history to be loaded (or timeout 5 s)
+        xEventGroupWaitBits(app_get_event_group(), EVT_HISTORY_LOADED,
+                            pdFALSE, pdTRUE, pdMS_TO_TICKS(5000));
+    }
+
+    // ── 3. Start WebSocket client ─────────────────────────────────────────────
+    if (connected) {
+        ws_client_start();
+        // ws_client sets EVT_WS_CONNECTED in its event handler
+    }
+
+    // ── 4. Button event loop ──────────────────────────────────────────────────
+    // The button ISR enqueues events; we handle single/double clicks here
+    // by POSTing test shots to the backend. Long press is handled in
+    // ui_process_queues() (reset) — we just call DELETE /shots here too.
+
+    btn_event_t btn;
     while (1) {
-        xSemaphoreTake(lvgl_mutex, portMAX_DELAY);
-        lv_timer_handler();
-        xSemaphoreGive(lvgl_mutex);
-        vTaskDelay(pdMS_TO_TICKS(10));
+        if (xQueuePeek(app_get_btn_queue(), &btn, pdMS_TO_TICKS(100)) == pdTRUE) {
+
+            // Leave the event in the queue — ui_process_queues() will also
+            // read it for LONG_PRESS reset. We only act on click types here.
+            if (xQueueReceive(app_get_btn_queue(), &btn, 0) == pdTRUE) {
+                switch (btn.action) {
+
+                    case BTN_SINGLE_CLICK:
+                        // Score-1 region: ~210 mm radius, on the X axis
+                        if (connected)
+                            post_test_shot(210.0f, 0.0f);
+                        break;
+
+                    case BTN_DOUBLE_CLICK:
+                        // Score-8 region: ~60 mm radius, 45° angle
+                        if (connected)
+                            post_test_shot(42.4f, 42.4f);
+                        break;
+
+                    case BTN_LONG_PRESS: {
+                        // Session reset: clear UI + DELETE /shots on backend
+                        // ui_reset() is already called by ui_process_queues()
+                        // when it reads BTN_LONG_PRESS from the queue.
+                        // But we already consumed it above, so call it explicitly.
+                        ui_reset();
+
+                        // POST DELETE to backend
+                        if (connected) {
+                            char url[128];
+                            snprintf(url, sizeof(url),
+                                     "http://%s:%d/shots",
+                                     CONFIG_SHOOT_BACKEND_HOST,
+                                     CONFIG_SHOOT_BACKEND_PORT);
+                            esp_http_client_config_t cfg = {
+                                .url    = url,
+                                .method = HTTP_METHOD_DELETE,
+                                .timeout_ms = 5000,
+                            };
+                            esp_http_client_handle_t c = esp_http_client_init(&cfg);
+                            esp_http_client_perform(c);
+                            ESP_LOGI(TAG, "Session reset: DELETE /shots → %d",
+                                     esp_http_client_get_status_code(c));
+                            esp_http_client_cleanup(c);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Small yield to prevent watchdog trigger
+        vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
 
-// ── Add shot function ─────────────────────────────────────────────────────
-static void add_shot(int score);
-
-// ── Button task (core 0) ──────────────────────────────────────────────────
-static void button_task(void *arg)
-{
-    while (1) {
-        EventBits_t bits = xEventGroupWaitBits(
-            key_groups,
-            BTN_SINGLE_CLICK_BIT | BTN_DOUBLE_CLICK_BIT | BTN_LONG_PRESS_BIT,
-            pdTRUE, pdFALSE, portMAX_DELAY);
-
-        // Issue 2 fix: hold mutex for ALL lvgl calls
-        xSemaphoreTake(lvgl_mutex, portMAX_DELAY);
-
-        if (bits & BTN_SINGLE_CLICK_BIT) {
-            add_shot(1);
-        }
-        if (bits & BTN_DOUBLE_CLICK_BIT) {
-            add_shot(3);
-        }
-        if (bits & BTN_LONG_PRESS_BIT) {
-            total_shot  = 0;
-            total_score = 0;
-            lv_label_set_text(label_total_shot,  "Total shot: 0");
-            lv_label_set_text(label_total_score, "Total score: 0");
-            lv_obj_clean(shot_list);
-        }
-
-        xSemaphoreGive(lvgl_mutex);
-    }
-}
-
-static void add_shot(int score)
-{
-    total_shot++;
-    total_score += score;
-
-    char buf[64];
-
-    // update header
-    sprintf(buf, "Total shot: %d", total_shot);
-    lv_label_set_text(label_total_shot, buf);
-
-    sprintf(buf, "Total score: %d", total_score);
-    lv_label_set_text(label_total_score, buf);
-
-    // add new shot
-    lv_obj_t *shot_label = lv_label_create(shot_list);
-    sprintf(buf, "Shot %d: %d", total_shot, score);
-    lv_label_set_text(shot_label, buf);
-
-    // auto scroll xuống dưới
-    lv_obj_scroll_to_view(shot_label, LV_ANIM_ON);
-}
-// Display init
-static void display_init(void)
-{
-    spi_bus_config_t buscfg = {
-        .sclk_io_num      = PIN_NUM_SCLK,
-        .mosi_io_num      = PIN_NUM_MOSI,
-        .quadwp_io_num    = -1,
-        .quadhd_io_num    = -1,
-        .max_transfer_sz  = LCD_H_RES * LVGL_DRAW_BUF_LINES * sizeof(uint16_t),
-    };
-    ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &buscfg, SPI_DMA_CH_AUTO));
-
-    esp_lcd_panel_io_spi_config_t io_config = {
-        .dc_gpio_num        = PIN_NUM_DC,
-        .cs_gpio_num        = PIN_NUM_CS,
-        .pclk_hz            = LCD_PIXEL_CLOCK_HZ,
-        .lcd_cmd_bits       = LCD_CMD_BITS,
-        .lcd_param_bits     = LCD_PARAM_BITS,
-        .spi_mode           = 0,
-        .trans_queue_depth  = 10,
-        .on_color_trans_done = lcd_trans_done_cb, // Step 3: wire up done CB
-        .user_ctx           = &disp_drv,
-    };
-
-    sh8601_vendor_config_t vendor_config = {
-        .init_cmds      = lcd_init_cmds,
-        .init_cmds_size = sizeof(lcd_init_cmds) / sizeof(lcd_init_cmds[0]),
-    };
-    ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi(
-        (esp_lcd_spi_bus_handle_t)LCD_HOST, &io_config, &io_handle));
-
-    esp_lcd_panel_dev_config_t panel_config = {
-        .reset_gpio_num  = PIN_NUM_RST,
-        .rgb_ele_order   = LCD_RGB_ELEMENT_ORDER_RGB,
-        .bits_per_pixel  = 16,
-        .vendor_config   = &vendor_config,
-        .data_endian     = LCD_RGB_DATA_ENDIAN_BIG,
-    };
-    ESP_ERROR_CHECK(esp_lcd_new_panel_sh8601(io_handle, &panel_config, &lcd_panel_handle));
-    ESP_ERROR_CHECK(esp_lcd_panel_reset(lcd_panel_handle));
-    ESP_ERROR_CHECK(esp_lcd_panel_init(lcd_panel_handle));
-    ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(lcd_panel_handle, true));
-}
+// ─── app_main ────────────────────────────────────────────────────────────────
 
 void app_main(void)
 {
-    lvgl_mutex = xSemaphoreCreateMutex();
-    display_init();
-    button_Init();  
+    ESP_LOGI(TAG, "=== Shooting Scoring System — ESP32-S3 ===");
+    ESP_LOGI(TAG, "Backend: %s:%d", CONFIG_SHOOT_BACKEND_HOST, CONFIG_SHOOT_BACKEND_PORT);
+
+    // ── 1. Shared FreeRTOS primitives ─────────────────────────────────────────
+    app_events_init();
+
+    // ── 2. LVGL core ──────────────────────────────────────────────────────────
+    // lv_init() MUST come before display_init() (lv_disp_drv_init is inside
+    // display_init and requires lv_init to have run).
     lv_init();
 
-    // ── Step 2: DMA buffers ─────────────────────────────────────────────
-    size_t buf_size = LCD_H_RES * LVGL_DRAW_BUF_LINES * sizeof(lv_color_t);
-    lv_color_t *buf1 = heap_caps_malloc(LCD_H_RES * LVGL_DRAW_BUF_LINES * sizeof(lv_color_t), MALLOC_CAP_DMA);
-    lv_color_t *buf2 = heap_caps_malloc(LCD_H_RES * LVGL_DRAW_BUF_LINES * sizeof(lv_color_t), MALLOC_CAP_DMA);
-    assert(buf1 && buf2);
+    // ── 3. LCD + LVGL driver + LVGL task (Core 1) ─────────────────────────────
+    display_init();
 
-    static lv_disp_draw_buf_t draw_buf;
-    lv_disp_draw_buf_init(&draw_buf, buf1, buf2, LCD_H_RES * LVGL_DRAW_BUF_LINES);
+    // ── 4. Build UI (called before LVGL task starts draining the queue, so
+    //       no mutex is needed here — we are the only task at this point) ──────
+    ui_init();
 
-    lv_disp_drv_init(&disp_drv);
-    disp_drv.hor_res   = LCD_H_RES;
-    disp_drv.ver_res   = LCD_V_RES;
-    disp_drv.flush_cb  = my_flush_cb;
-    disp_drv.draw_buf  = &draw_buf;
-    disp_drv.user_data = lcd_panel_handle;
-    lv_disp_drv_register(&disp_drv);
+    // ── 5. Register queue-drain as an LVGL timer (fires every 50 ms) ──────────
+    // This replaces the need for any external task to poke the LVGL mutex;
+    // the drain happens inside lv_timer_handler() on Core 1.
+    lv_timer_create(lvgl_queue_timer_cb, 50, NULL);
 
-    // 2ms tick timer
-    const esp_timer_create_args_t timer_args = {
-        .callback = tick_cb,
-        .name     = "lv_tick"
-    };
-    esp_timer_handle_t timer;
-    ESP_ERROR_CHECK(esp_timer_create(&timer_args, &timer));
-    ESP_ERROR_CHECK(esp_timer_start_periodic(timer, 2000));
+    // ── 6. Button ─────────────────────────────────────────────────────────────
+    button_init();
 
-    // ── UI ─────────────────────────────────────────────────────────────
+    // ── 7. WiFi (non-blocking — connection happens in the event loop) ──────────
+    wifi_init_sta();
 
-    // background
-    lv_obj_t *scr = lv_scr_act();
-    lv_obj_set_style_bg_color(scr, lv_color_black(), 0);
-    
-    // HEADER (fixed)
-    lv_obj_t *header = lv_obj_create(scr);
-    lv_obj_set_size(header, LCD_H_RES, 60);
-    lv_obj_align(header, LV_ALIGN_TOP_MID, 0, 0);
-    lv_obj_set_style_bg_color(header, lv_color_black(), 0);
-    lv_obj_set_style_border_width(header, 0, 0);
-    lv_obj_set_style_pad_all(header, 0, 0);
-    lv_obj_clear_flag(header, LV_OBJ_FLAG_SCROLLABLE);
+    // ── 8. Network task on Core 0 ─────────────────────────────────────────────
+    xTaskCreatePinnedToCore(
+        network_task, "net_task",
+        8192,           // 8 KB stack — cJSON and HTTP need headroom
+        NULL, 4,
+        NULL, 0         // Core 0 (WiFi stack runs there too)
+    );
 
-    label_total_shot = lv_label_create(header); 
-    lv_obj_set_style_text_font(label_total_shot, &lv_font_montserrat_20, 0);
-    lv_label_set_text(label_total_shot, "Total shot: 0");
-    lv_obj_align(label_total_shot, LV_ALIGN_TOP_LEFT, 5, 5);
-    lv_obj_set_style_text_color(label_total_shot, lv_color_white(), 0);
-
-    label_total_score = lv_label_create(header);
-    lv_obj_set_style_text_font(label_total_score, &lv_font_montserrat_20, 0);
-    lv_label_set_text(label_total_score, "Total score: 0");
-    lv_obj_align(label_total_score, LV_ALIGN_TOP_LEFT, 5, 25);
-    lv_obj_set_style_text_color(label_total_score, lv_color_white(), 0);
-    // separator line
-    lv_obj_t *sep = lv_obj_create(header);
-    lv_obj_set_size(sep, LCD_H_RES, 1);
-    lv_obj_align(sep, LV_ALIGN_BOTTOM_MID, 0, 0);
-    lv_obj_set_style_bg_color(sep, lv_color_make(60, 60, 60), 0);
-    lv_obj_set_style_border_width(sep, 0, 0);
-
-    // SHOT LIST (scrollable)
-    shot_list = lv_obj_create(lv_scr_act());
-    lv_obj_set_style_text_font(shot_list, &lv_font_montserrat_20, 0);
-    lv_obj_set_size(shot_list, LCD_H_RES, LCD_V_RES - 60);
-    lv_obj_align(shot_list, LV_ALIGN_BOTTOM_MID, 0, 0);
-    lv_obj_set_style_bg_color(shot_list, lv_color_black(), 0);
-    lv_obj_set_style_border_width(shot_list, 0, 0);
-    lv_obj_set_style_pad_all(shot_list, 4, 0);
-    lv_obj_set_style_pad_row(shot_list, 4, 0);
-
-    lv_obj_set_scroll_dir(shot_list, LV_DIR_VER);
-    lv_obj_set_scrollbar_mode(shot_list, LV_SCROLLBAR_MODE_AUTO);
-    lv_obj_set_flex_flow(shot_list, LV_FLEX_FLOW_COLUMN);
-
-    // test data
-    for (int i = 0; i < 10; i++) {
-        add_shot(i % 10);
-    }
-
-    // LVGL task
-    xTaskCreatePinnedToCore(lvgl_task, "lvgl", 8192, NULL, 5, NULL, 1);
-    xTaskCreatePinnedToCore(button_task, "btn", 4096, NULL, 4, NULL, 0); // core 0
+    ESP_LOGI(TAG, "app_main done — all tasks launched");
+    // app_main returns; FreeRTOS scheduler continues running all tasks.
 }

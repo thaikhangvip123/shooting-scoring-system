@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from datetime import datetime
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -44,7 +45,15 @@ class ConnectionManager:
         Send a JSON message to all connected clients.
         Dead connections are removed silently.
         """
-        payload = json.dumps(message, default=str)
+        enriched = dict(message)
+        if "type" not in enriched:
+            metadata = dict(enriched.get("metadata") or {})
+            eval_meta = dict(metadata.get("eval") or {})
+            eval_meta["backend_broadcast_at_ms"] = int(time.time() * 1000)
+            metadata["eval"] = eval_meta
+            enriched["metadata"] = metadata
+
+        payload = json.dumps(enriched, default=str)
         dead    = []
 
         async with self._lock:

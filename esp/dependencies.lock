@@ -1,10 +1,10 @@
 dependencies:
-  esp_lcd_sh8601:
+  esp_lcd_ili9341:
     dependencies: []
     source:
-      path: components\esp_lcd_sh8601
+      path: E:\shooting-scoring-system\esp\components\esp_lcd_ili9341
       type: local
-    version: 2.0.1
+    version: 2.0.0
   espressif/cmake_utilities:
     component_hash: 351350613ceafba240b761b4ea991e0f231ac7a9f59a9ee901f751bddc0bb18f
     dependencies:
@@ -15,10 +15,20 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 0.5.3
+  espressif/esp_websocket_client:
+    component_hash: 3fb288702517ef4d75bf933a115f1056ee0c2540d964f9e1d856e0bb67e1dfeb
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.7.0
   idf:
     source:
       type: idf
-    version: 6.0.0
+    version: 5.5.2
   lvgl/lvgl:
     component_hash: d7c1ac037ae6e85d94897f807d6e7ba0946a83e720074fc95a4f6241da9f9f53
     dependencies: []
@@ -28,9 +38,10 @@ dependencies:
     version: 8.4.0
 direct_dependencies:
 - espressif/cmake_utilities
-- espressif/esp_lcd_sh8601
+- espressif/esp_lcd_ili9341
+- espressif/esp_websocket_client
 - idf
 - lvgl/lvgl
-manifest_hash: b59aa358e1cb863f4bab65474062d560b1c11420725588856015295763112d80
+manifest_hash: 60458958a48c6f8405c8754f62f001dc532c6541f1550197958cc650167be8ce
 target: esp32s3
-version: 3.0.0
+version: 2.0.0

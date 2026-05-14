@@ -10,9 +10,9 @@ const COLUMNS = [
   { key: 'index',     label: '#',        width: 44  },
   { key: 'timestamp', label: 'Time',     width: 80  },
   { key: 'score',     label: 'Score',    width: 64  },
-  { key: 'x_mm',      label: 'X (mm)',   width: 80  },
-  { key: 'y_mm',      label: 'Y (mm)',   width: 80  },
-  { key: 'radius',    label: 'R (mm)',   width: 80  },
+  { key: 'x_px',      label: 'X (px)',   width: 80  },
+  { key: 'y_px',      label: 'Y (px)',   width: 80  },
+  { key: 'radius',    label: 'R (px)',   width: 80  },
   { key: 'ring',      label: 'Ring',     width: 56  },
   { key: 'session',   label: 'Session',  width: 90  },
 ];
@@ -31,7 +31,9 @@ export default function ShotTable({ shots = [], latestId = null }) {
     let rows = shots.map((s, i) => ({
       ...s,
       index:  shots.length - i,
-      radius: Math.sqrt(s.x_mm ** 2 + s.y_mm ** 2),
+      x_px: Number(s.x_px ?? s.x_mm ?? 0),
+      y_px: Number(s.y_px ?? s.y_mm ?? 0),
+      radius: s.radius_px ?? Math.sqrt(Number(s.x_px ?? s.x_mm ?? 0) ** 2 + Number(s.y_px ?? s.y_mm ?? 0) ** 2),
     }));
 
     if (filter.trim()) {

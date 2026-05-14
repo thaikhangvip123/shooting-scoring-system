@@ -12,6 +12,9 @@ import StatsPanel from '@/components/stats/StatsPanel';
 import { radialDeviation, calcCEP } from '@/utils/scoring';
 import { fmtTime } from '@/utils/format';
 
+const shotX = (shot) => Number(shot.x_px ?? shot.x_mm ?? 0);
+const shotY = (shot) => Number(shot.y_px ?? shot.y_mm ?? 0);
+
 const ChartTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
   return (
@@ -33,7 +36,7 @@ export default function AnalyticsPage({ shots, stats }) {
       .reverse()
       .map((s, i) => {
         const subset = shots.slice(shots.length - 1 - i);
-        const radii  = subset.map((sh) => radialDeviation(sh.x_mm, sh.y_mm));
+        const radii  = subset.map((sh) => radialDeviation(shotX(sh), shotY(sh)));
         return {
           shot:  i + 1,
           cep:   Number(calcCEP(radii).toFixed(2)),
@@ -55,9 +58,9 @@ export default function AnalyticsPage({ shots, stats }) {
       });
   }, [shots]);
 
-  // Scatter data for x_mm vs y_mm
+  // Scatter data for x_px vs y_px
   const scatter = useMemo(
-    () => shots.map((s) => ({ x: Number(s.x_mm?.toFixed(2)), y: Number(s.y_mm?.toFixed(2)), score: s.score })),
+    () => shots.map((s) => ({ x: Number(shotX(s).toFixed(2)), y: Number(shotY(s).toFixed(2)), score: s.score })),
     [shots]
   );
 
@@ -76,13 +79,13 @@ export default function AnalyticsPage({ shots, stats }) {
         <div className="card">
           <div className="card-header">
             <span className="card-title">CEP Trend</span>
-            <span style={{ fontSize: 11, color: 'var(--c-text-3)' }}>mm vs shot #</span>
+            <span style={{ fontSize: 11, color: 'var(--c-text-3)' }}>px vs shot #</span>
           </div>
           <div style={{ padding: '12px 8px' }}>
             <ResponsiveContainer width="100%" height={180}>
               <LineChart data={cepTrend} style={chartStyle}>
                 <XAxis dataKey="shot" tick={{ fontSize: 10, fill: 'var(--c-text-3)' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 10, fill: 'var(--c-text-3)' }} axisLine={false} tickLine={false} unit=" mm" />
+                <YAxis tick={{ fontSize: 10, fill: 'var(--c-text-3)' }} axisLine={false} tickLine={false} unit=" px" />
                 <Tooltip content={<ChartTooltip />} />
                 <Line type="monotone" dataKey="cep" stroke="var(--c-accent)" strokeWidth={2} dot={false} name="CEP" />
               </LineChart>
@@ -114,8 +117,8 @@ export default function AnalyticsPage({ shots, stats }) {
       {/* Scatter plot */}
       <div className="card">
         <div className="card-header">
-          <span className="card-title">Shot Scatter (mm)</span>
-          <span style={{ fontSize: 11, color: 'var(--c-text-3)' }}>X / Y deviation from centre</span>
+          <span className="card-title">Shot Scatter (px)</span>
+          <span style={{ fontSize: 11, color: 'var(--c-text-3)' }}>X / Y CV pixel coordinates</span>
         </div>
         <div style={{ padding: '12px 8px' }}>
           <ResponsiveContainer width="100%" height={260}>
@@ -123,12 +126,12 @@ export default function AnalyticsPage({ shots, stats }) {
               <CartesianGrid strokeDasharray="3 3" stroke="var(--c-border)" />
               <XAxis
                 dataKey="x" type="number" name="X"
-                unit=" mm" domain={['auto', 'auto']}
+                unit=" px" domain={['auto', 'auto']}
                 tick={{ fontSize: 10, fill: 'var(--c-text-3)' }} axisLine={false} tickLine={false}
               />
               <YAxis
                 dataKey="y" type="number" name="Y"
-                unit=" mm" domain={['auto', 'auto']}
+                unit=" px" domain={['auto', 'auto']}
                 tick={{ fontSize: 10, fill: 'var(--c-text-3)' }} axisLine={false} tickLine={false}
               />
               <Tooltip cursor={{ strokeDasharray: '3 3' }} content={<ChartTooltip />} />

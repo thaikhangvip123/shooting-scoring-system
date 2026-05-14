@@ -6,20 +6,23 @@
 
 // Target ring definitions: [maxRadius_mm, score, label, color]
 export const RINGS = [
-  [  11.25,  10, 'X', '#e8f4ff' ],  // X-ring (innermost)
-  [  22.5,   10, '10','#ddeeff' ],
-  [  45,      9, '9', '#c4e0ff' ],
-  [  67.5,    8, '8', '#aad4ff' ],
-  [  90,      7, '7', '#88c4ff' ],
-  [ 112.5,    6, '6', '#ffcc44' ],
-  [ 135,      5, '5', '#ffaa22' ],
-  [ 157.5,    4, '4', '#ff8811' ],
-  [ 180,      3, '3', '#ff5533' ],
-  [ 202.5,    2, '2', '#ee2222' ],
-  [ 225,      1, '1', '#cc0000' ],
+  [  11.25,  10, '10', '#e8f4ff' ],  // X-ring (innermost)
+  [  22.5,   9, '9','#ddeeff' ],
+  [  45,      8, '8', '#c4e0ff' ],
+  [  67.5,    7, '7', '#aad4ff' ],
+  [  90,      6, '6', '#88c4ff' ],
+  [ 112.5,    5, '5', '#ffcc44' ],
+  [ 135,      4, '4', '#ffaa22' ],
+  [ 157.5,    3, '3', '#ff8811' ],
+  [ 180,      2, '2', '#ff5533' ],
+  [ 202.5,    1, '1', '#ee2222' ],
+  [ 225,      0, '0', '#cc0000' ],
 ];
 
 export const TARGET_RADIUS_MM = 225; // outermost scoring ring
+
+const pointX = (p) => Number(p?.x_px ?? p?.x_mm ?? p?.x ?? 0);
+const pointY = (p) => Number(p?.y_px ?? p?.y_mm ?? p?.y ?? 0);
 
 /**
  * Euclidean distance from target centre (0,0) in millimetres.
@@ -66,9 +69,9 @@ export const calcCEP = (radii) => {
  */
 export const calcR50 = (shots) => {
   if (!shots.length) return 0;
-  const mx = shots.reduce((s, p) => s + p.x_mm, 0) / shots.length;
-  const my = shots.reduce((s, p) => s + p.y_mm, 0) / shots.length;
-  const radii = shots.map((p) => radialDeviation(p.x_mm - mx, p.y_mm - my));
+  const mx = shots.reduce((s, p) => s + pointX(p), 0) / shots.length;
+  const my = shots.reduce((s, p) => s + pointY(p), 0) / shots.length;
+  const radii = shots.map((p) => radialDeviation(pointX(p) - mx, pointY(p) - my));
   return calcCEP(radii);
 };
 
@@ -83,8 +86,8 @@ export const calcGroupSize = (shots) => {
   for (let i = 0; i < shots.length; i++) {
     for (let j = i + 1; j < shots.length; j++) {
       const d = radialDeviation(
-        shots[i].x_mm - shots[j].x_mm,
-        shots[i].y_mm - shots[j].y_mm
+        pointX(shots[i]) - pointX(shots[j]),
+        pointY(shots[i]) - pointY(shots[j])
       );
       if (d > max) max = d;
     }
@@ -100,8 +103,8 @@ export const calcGroupSize = (shots) => {
 export const calcMeanPOI = (shots) => {
   if (!shots.length) return { x: 0, y: 0 };
   return {
-    x: shots.reduce((s, p) => s + p.x_mm, 0) / shots.length,
-    y: shots.reduce((s, p) => s + p.y_mm, 0) / shots.length,
+    x: shots.reduce((s, p) => s + pointX(p), 0) / shots.length,
+    y: shots.reduce((s, p) => s + pointY(p), 0) / shots.length,
   };
 };
 

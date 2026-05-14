@@ -6,7 +6,7 @@ from layer1 import process_layer_1
 from layer2 import process_layer_2
 from layer3 import tracking_hungarian
 
-def target_worker_thread(target_name, target_state, bg_dict, in_q, out_q):
+def target_worker_thread(target_name, target_state, bg_dict, in_q, out_q, recorder=None):
     print(f"🚀 Worker {target_name} đã sẵn sàng!")
 
     while True:
@@ -42,14 +42,31 @@ def target_worker_thread(target_name, target_state, bg_dict, in_q, out_q):
             raw_circles.extend(process_layer_2(cand["contour"], EXPECTED_RADIUS, warped_gray.shape))
 
         # 5. CHẠY LAYER 3 (HUNGARIAN TRACKING)
+        prev_confirmed_ids = set(target_state["confirmed"].keys())
         all_display = tracking_hungarian(target_state, raw_circles, frame_idx)
+        new_confirmed_ids = set(target_state["confirmed"].keys()) - prev_confirmed_ids
         
         # 6. TÍNH ĐIỂM & VẼ KẾT QUẢ CHÍNH THỨC
         total_score = 0
         for (bullet_id, cx, cy, r) in all_display:
             px = (int(cx), int(cy))
-            score = calculate_score(target_name, (int(cx * SCALE_FACTOR), int(cy * SCALE_FACTOR)))
+            x_px = float(cx * SCALE_FACTOR)
+            y_px = float(cy * SCALE_FACTOR)
+            radius_px = float(r * SCALE_FACTOR)
+            target_type = target_name.replace("BIA_", "")
+            score = calculate_score(target_name, (int(x_px), int(y_px)))
             total_score += score
+
+            if recorder is not None and bullet_id in new_confirmed_ids:
+                recorder.record(
+                    frame_idx=frame_idx,
+                    target_type=target_type,
+                    bullet_id=bullet_id,
+                    x_px=x_px,
+                    y_px=y_px,
+                    radius=radius_px,
+                    scores=score,
+                )
             
             # Vết đạn đã Tracking thành công sẽ có màu Xanh Lá + Tâm đen
             cv2.circle(warped, px, int(r), (0, 255, 0), 2)

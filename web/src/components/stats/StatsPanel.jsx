@@ -6,14 +6,14 @@
 
 import { useMemo } from 'react';
 import { calcCEP, calcR50, calcGroupSize, calcMeanPOI, radialDeviation } from '@/utils/scoring';
-import { fmtMm, fmtSigned } from '@/utils/format';
+import { fmtSigned } from '@/utils/format';
 import StatCard from './StatCard';
 
 export default function StatsPanel({ shots = [], stats = null }) {
   // Client-side fallback calculations
   const computed = useMemo(() => {
     if (!shots.length) return {};
-    const radii    = shots.map((s) => radialDeviation(s.x_mm, s.y_mm));
+    const radii    = shots.map((s) => radialDeviation(Number(s.x_px ?? s.x_mm ?? 0), Number(s.y_px ?? s.y_mm ?? 0)));
     const cep      = stats?.cep       ?? calcCEP(radii);
     const r50      = stats?.r50       ?? calcR50(shots);
     const group    = stats?.group_size ?? calcGroupSize(shots);
@@ -35,21 +35,21 @@ export default function StatsPanel({ shots = [], stats = null }) {
     >
       <StatCard
         label="CEP"
-        value={fmtMm(cep)}
+        value={cep != null ? `${cep.toFixed(1)} px` : '—'}
         sub="50% of shots inside"
         color="var(--c-accent-h)"
         icon="◎"
       />
       <StatCard
         label="R50"
-        value={fmtMm(r50)}
+        value={r50 != null ? `${r50.toFixed(1)} px` : '—'}
         sub="Group centre radius"
         color="#a78bfa"
         icon="⊙"
       />
       <StatCard
         label="Group Size"
-        value={fmtMm(group)}
+        value={group != null ? `${group.toFixed(1)} px` : '—'}
         sub="Extreme spread"
         color="#34d399"
         icon="↔"
@@ -68,7 +68,7 @@ export default function StatsPanel({ shots = [], stats = null }) {
             ? `${fmtSigned(poi.x)} / ${fmtSigned(poi.y)}`
             : '—'
         }
-        sub="X / Y offset (mm)"
+        sub="X / Y coordinate (px)"
         color="#fb923c"
         icon="⊕"
       />
