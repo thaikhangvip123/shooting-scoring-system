@@ -1,54 +1,161 @@
+import time
+
 import cv2
 import numpy as np
+
 from config import *
-from scoring import calculate_score
 from layer1 import process_layer_1
 from layer2 import process_layer_2
 from layer3 import tracking_hungarian
+from scoring import calculate_score
+
+
+def remove_confirmed_from_mask(mask, confirmed_items, radius):
+    """
+    Remove already confirmed bullet regions from the dark mask so Layer 2 only
+    runs on new candidates.
+    """
+    clean_mask = mask.copy()
+    radius_factor = globals().get("CONFIRMED_MASK_RADIUS_FACTOR", 1.0)
+
+    for _, data in confirmed_items.items():
+        cx, cy = data["pos"]
+        cv2.circle(
+            clean_mask,
+            (int(cx), int(cy)),
+            int(radius * radius_factor),
+            0,
+            -1,
+        )
+
+    return clean_mask
+
+
+def extract_candidates_from_mask(mask):
+    cnts, _ = cv2.findContours(
+        mask,
+        cv2.RETR_EXTERNAL,
+        cv2.CHAIN_APPROX_SIMPLE,
+    )
+
+    candidates = []
+
+    for c in cnts:
+        if cv2.contourArea(c) < 400:
+            continue
+
+        hull = cv2.convexHull(c)
+        area = cv2.contourArea(hull)
+        perimeter = cv2.arcLength(hull, True)
+
+        if perimeter == 0:
+            continue
+
+        circularity = 4 * np.pi * (area / (perimeter ** 2))
+
+        if circularity >= CIRCULARITY_THRESH:
+            candidates.append({
+                "contour": c,
+                "label": "bullet",
+            })
+
+    return candidates
+
 
 def target_worker_thread(target_name, target_state, bg_dict, in_q, out_q, recorder=None):
-    print(f"🚀 Worker {target_name} đã sẵn sàng!")
+    print(f"Worker {target_name} ready")
 
     while True:
         item = in_q.get()
-        if item is None: break 
+        if item is None:
+            break
+
+        worker_start = time.time()
         frame, src_pts, frame_idx = item
 
         H, _ = cv2.findHomography(src_pts, dst_points)
         warped = cv2.warpPerspective(frame, H, (WIDTH, HEIGHT))
-        warped_gray = cv2.GaussianBlur(cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY), (5, 5), 0)
+        warped_gray = cv2.GaussianBlur(
+            cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY),
+            (5, 5),
+            0,
+        )
 
-        # 1. KHỞI TẠO NỀN (FRAME ĐẦU TIÊN)
         if bg_dict[target_name] is None:
             bg_dict[target_name] = warped_gray
+
+            worker_elapsed = time.time() - worker_start
+            worker_fps = 1.0 / worker_elapsed if worker_elapsed > 0 else 0
+
+            cv2.putText(
+                warped,
+                f"Worker FPS: {worker_fps:.1f}",
+                (30, 110),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1.0,
+                (255, 0, 0),
+                2,
+            )
+
             out_q.put((target_name, cv2.resize(warped, (400, 566))))
-            continue 
+            continue
 
-        # 2. CHẠY LAYER 1 TRƯỚC ĐỂ TÌM MẶT NẠ VẾT ĐẠN (NÉ VẾT ĐẠN RA)
-        candidates, dark_mask = process_layer_1(bg_dict[target_name], warped_gray, dst_points)
-        
-        # 3. HỌC NỀN ĐỘNG (THÔNG MINH)
-        # Tính toán nền mới tạm thời
-        new_bg = cv2.addWeighted(bg_dict[target_name], 1.0 - BG_ALPHA, warped_gray, BG_ALPHA, 0)
-        # Dùng np.where: Nơi nào CÓ vết đạn đen (dark_mask > 0) -> Giữ nền CŨ. 
-        # Nơi nào là giấy sạch -> Cập nhật nền MỚI.
-        bg_dict[target_name] = np.where(dark_mask > 0, bg_dict[target_name], new_bg)
+        candidates, dark_mask = process_layer_1(
+            bg_dict[target_name],
+            warped_gray,
+            dst_points,
+        )
 
-        # 4. CHẠY LAYER 2 (RANSAC / HOUGH)
+        new_only_mask = remove_confirmed_from_mask(
+            dark_mask,
+            target_state["confirmed"],
+            EXPECTED_RADIUS,
+        )
+        new_candidates = extract_candidates_from_mask(new_only_mask)
+
+        new_bg = cv2.addWeighted(
+            bg_dict[target_name],
+            1.0 - BG_ALPHA,
+            warped_gray,
+            BG_ALPHA,
+            0,
+        )
+        bg_dict[target_name] = np.where(
+            dark_mask > 0,
+            bg_dict[target_name],
+            new_bg,
+        )
+
         raw_circles = []
-        for cand in candidates:
-            # Vẽ viền màu Cyan cho các candidate chưa confirm
-            cv2.drawContours(warped, [cand["contour"]], -1, (255, 255, 0), 1)
-            raw_circles.extend(process_layer_2(cand["contour"], EXPECTED_RADIUS, warped_gray.shape))
 
-        # 5. CHẠY LAYER 3 (HUNGARIAN TRACKING)
+        for cand in new_candidates:
+            contour = cand["contour"]
+            cv2.drawContours(
+                warped,
+                [contour],
+                -1,
+                (255, 255, 0),
+                1,
+            )
+            raw_circles.extend(
+                process_layer_2(
+                    contour,
+                    EXPECTED_RADIUS,
+                    warped_gray.shape,
+                )
+            )
+
         prev_confirmed_ids = set(target_state["confirmed"].keys())
-        all_display = tracking_hungarian(target_state, raw_circles, frame_idx)
+        all_display = tracking_hungarian(
+            target_state,
+            raw_circles,
+            frame_idx,
+        )
         new_confirmed_ids = set(target_state["confirmed"].keys()) - prev_confirmed_ids
-        
-        # 6. TÍNH ĐIỂM & VẼ KẾT QUẢ CHÍNH THỨC
+
         total_score = 0
-        for (bullet_id, cx, cy, r) in all_display:
+
+        for bullet_id, cx, cy, r in all_display:
             px = (int(cx), int(cy))
             x_px = float(cx * SCALE_FACTOR)
             y_px = float(cy * SCALE_FACTOR)
@@ -67,14 +174,58 @@ def target_worker_thread(target_name, target_state, bg_dict, in_q, out_q, record
                     radius=radius_px,
                     scores=score,
                 )
-            
-            # Vết đạn đã Tracking thành công sẽ có màu Xanh Lá + Tâm đen
+
             cv2.circle(warped, px, int(r), (0, 255, 0), 2)
             cv2.circle(warped, px, 3, (0, 0, 0), -1)
-            
-            # Ghi số điểm (Chữ trắng viền đen để không bị chìm màu)
-            cv2.putText(warped, str(score), (px[0]+int(r), px[1]-5), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0,0,0), 5)
-            cv2.putText(warped, str(score), (px[0]+int(r), px[1]-5), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255,255,255), 2)
 
-        cv2.putText(warped, f"Hits: {len(all_display)} | Total: {total_score}", (30, 60), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0,0,255), 3)
+            cv2.putText(
+                warped,
+                str(score),
+                (px[0] + int(r), px[1] - 5),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1.2,
+                (0, 0, 0),
+                5,
+            )
+            cv2.putText(
+                warped,
+                str(score),
+                (px[0] + int(r), px[1] - 5),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1.2,
+                (255, 255, 255),
+                2,
+            )
+
+        worker_elapsed = time.time() - worker_start
+        worker_fps = 1.0 / worker_elapsed if worker_elapsed > 0 else 0
+
+        cv2.putText(
+            warped,
+            f"Hits: {len(all_display)} | Total: {total_score}",
+            (30, 60),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1.5,
+            (0, 0, 255),
+            3,
+        )
+        cv2.putText(
+            warped,
+            f"Worker FPS: {worker_fps:.1f}",
+            (30, 110),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1.0,
+            (255, 0, 0),
+            2,
+        )
+        cv2.putText(
+            warped,
+            f"Candidates: {len(candidates)} -> New: {len(new_candidates)} | Raw: {len(raw_circles)}",
+            (30, 150),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.9,
+            (255, 0, 0),
+            2,
+        )
+
         out_q.put((target_name, cv2.resize(warped, (400, 566))))

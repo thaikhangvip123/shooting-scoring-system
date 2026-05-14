@@ -1,30 +1,52 @@
+from pathlib import Path
+
 import numpy as np
 
-# --- THAY ĐỔI BASE_DIR THÀNH ĐƯỜNG DẪN CỦA BẠN ---
-BASE_DIR = "E:/shooting-scoring-system/cv" 
 
-VIDEO_PATH = f"{BASE_DIR}/Videos/target3.mp4"
+BASE_DIR = Path(__file__).resolve().parents[1]
 
-PATH_IPSC_POLY = f"{BASE_DIR}/Scoring/IPSC/polygon.txt"
-PATH_NGUOI_CONT = f"{BASE_DIR}/Scoring/Nguoi/Nguoi_contours.txt"
+VIDEO_PATH = str(BASE_DIR / "Videos" / "target4.mp4")
 
-# Kích thước và Tọa độ
+PATH_IPSC_POLY = str(BASE_DIR / "Scoring" / "IPSC" / "polygon.txt")
+PATH_NGUOI_CONT = str(BASE_DIR / "Scoring" / "Nguoi" / "Nguoi_contours.txt")
+
+# Target dimensions and coordinates
 WIDTH, HEIGHT = 1240, 1754
 SCALE_FACTOR = 2480 / WIDTH
 MARGIN = 40
-EXPECTED_RADIUS = 21  
+EXPECTED_RADIUS = 21.5
 
 dst_points = np.array([
-    [MARGIN, MARGIN], 
-    [WIDTH - MARGIN, MARGIN], 
-    [WIDTH - MARGIN, HEIGHT - MARGIN], 
-    [MARGIN, HEIGHT - MARGIN]
+    [MARGIN, MARGIN],
+    [WIDTH - MARGIN, MARGIN],
+    [WIDTH - MARGIN, HEIGHT - MARGIN],
+    [MARGIN, HEIGHT - MARGIN],
 ], dtype=np.float32)
 
-# --- THÔNG SỐ TỐI ƯU MỚI ---
-CIRCULARITY_THRESH = 0.6  # Chuẩn độ tròn mới (Bỏ qua overlap)
-CONFIRM_FRAMES = 6         # Số frame liên tiếp để xác nhận đạn
-STALE_FRAMES = 10          # Frame chờ trước khi xóa candidate
-FORGET_FRAMES = 15         # Frame chờ trước khi xóa confirmed
-MATCH_DIST = 20            # Bán kính tìm kiếm ghép cặp (Hungarian)
-BG_ALPHA = 0.05            # Tốc độ học nền mới (Rolling BG)
+# Detection and tracking tuning
+CIRCULARITY_THRESH = 0.7
+CONFIRM_FRAMES = 7
+STALE_FRAMES = 20
+FORGET_FRAMES = 999999
+MATCH_DIST = 15
+BG_ALPHA = 0.05
+
+# Hough tuning
+HOUGH_DP = 1.2
+HOUGH_MIN_DIST_FACTOR = 1.0
+HOUGH_PARAM1 = 50
+HOUGH_PARAM2 = 15
+HOUGH_MIN_RADIUS_FACTOR = 0.6
+HOUGH_MAX_RADIUS_FACTOR = 1.4
+
+# RANSAC tuning
+RANSAC_MIN_CONTOUR_POINTS = 10
+RANSAC_ITERATIONS = 50
+RANSAC_HOUGH_REMOVE_THRESH = 5.0
+RANSAC_INLIER_THRESH = 2.5
+RANSAC_MIN_INLIERS = 10
+RANSAC_MIN_AVAILABLE_POINTS = 10
+NMS_MIN_DIST_FACTOR = 0.4
+
+ARUCO_DETECT_EVERY_N_FRAMES = 2
+CONFIRMED_MASK_RADIUS_FACTOR = 1.0
