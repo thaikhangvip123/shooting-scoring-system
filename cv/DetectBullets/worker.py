@@ -1,10 +1,20 @@
 import cv2
 import numpy as np
+import queue
 from config import *
 from scoring import calculate_score
 from layer1 import process_layer_1
 from layer2 import process_layer_2
 from layer3 import tracking_hungarian
+
+
+def put_latest(out_q, item):
+    try:
+        if out_q.full():
+            out_q.get_nowait()
+        out_q.put_nowait(item)
+    except (queue.Empty, queue.Full):
+        pass
 
 def target_worker_thread(target_name, target_state, bg_dict, in_q, out_q, recorder=None):
     print(f"🚀 Worker {target_name} đã sẵn sàng!")
@@ -21,7 +31,7 @@ def target_worker_thread(target_name, target_state, bg_dict, in_q, out_q, record
         # 1. KHỞI TẠO NỀN (FRAME ĐẦU TIÊN)
         if bg_dict[target_name] is None:
             bg_dict[target_name] = warped_gray
-            out_q.put((target_name, cv2.resize(warped, (400, 566))))
+            put_latest(out_q, (target_name, cv2.resize(warped, (400, 566))))
             continue 
 
         # 2. CHẠY LAYER 1 TRƯỚC ĐỂ TÌM MẶT NẠ VẾT ĐẠN (NÉ VẾT ĐẠN RA)
@@ -77,4 +87,4 @@ def target_worker_thread(target_name, target_state, bg_dict, in_q, out_q, record
             cv2.putText(warped, str(score), (px[0]+int(r), px[1]-5), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255,255,255), 2)
 
         cv2.putText(warped, f"Hits: {len(all_display)} | Total: {total_score}", (30, 60), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0,0,255), 3)
-        out_q.put((target_name, cv2.resize(warped, (400, 566))))
+        put_latest(out_q, (target_name, cv2.resize(warped, (400, 566))))
