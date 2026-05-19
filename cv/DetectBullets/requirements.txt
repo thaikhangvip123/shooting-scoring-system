@@ -6,3 +6,4 @@ opencv-python==4.9.0.80
 opencv-contrib-python==4.9.0.80
 
 numba==0.59.1
+ndi-python
