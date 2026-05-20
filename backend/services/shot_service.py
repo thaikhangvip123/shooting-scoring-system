@@ -15,6 +15,7 @@ from typing import Optional
 from backend.config import get_settings
 from backend.db.firebase import get_store
 from backend.models.shot import ShotCreate, ShotHistoryResponse, ShotRecord, ShotResponse
+from backend.services.session_service import session_manager
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +167,9 @@ class DuplicateGuard:
     def update(self, record: ShotRecord) -> None:
         self._last = record
 
+    def reset(self) -> None:
+        self._last = None
+
 
 _guard = DuplicateGuard(
     min_px=get_settings().duplicate_min_mm,
@@ -178,10 +182,17 @@ async def register_shot(payload: ShotCreate) -> ShotResponse:
     if _guard.is_duplicate(payload):
         raise ValueError("Duplicate shot rejected (too close in space and time)")
 
+    session_id, session_number, shot_index, shots_per_session = await session_manager.prepare_shot()
+
     metadata = dict(payload.metadata or {})
     target_type = str(metadata.get("target_type", "TRON")).upper()
     score, ring, radius = compute_score(target_type, payload.x_px, payload.y_px)
     metadata["target_type"] = target_type
+    metadata["session_number"] = session_number
+    metadata["shot_index"] = shot_index
+    metadata["shots_per_session"] = shots_per_session
+    if payload.session_id:
+        metadata["source_session_id"] = payload.session_id
     if payload.shotID is not None:
         metadata["shotID"] = payload.shotID
     if payload.scores is not None:
@@ -198,7 +209,7 @@ async def register_shot(payload: ShotCreate) -> ShotResponse:
         score=score,
         ring=ring,
         timestamp=payload.timestamp or datetime.now(timezone.utc),
-        session_id=payload.session_id,
+        session_id=session_id,
         metadata=metadata,
     )
 
@@ -209,6 +220,7 @@ async def register_shot(payload: ShotCreate) -> ShotResponse:
         record.metadata.setdefault("eval", {})
         record.metadata["eval"]["backend_persisted_at_ms"] = persisted_at_ms
     _guard.update(record)
+    await session_manager.finish_shot(session_id, shot_index)
 
     logger.info(
         "Shot registered id=%s target=%s score=%d ring=%s (%.1f, %.1f) px",
@@ -247,3 +259,13 @@ async def get_shot_history(
 async def delete_all_shots() -> int:
     store = get_store()
     return await store.delete_all()
+
+
+async def reset_current_session() -> tuple[str, int]:
+    session_id, deleted, _status = await session_manager.reset_current()
+    reset_duplicate_guard()
+    return session_id, deleted
+
+
+def reset_duplicate_guard() -> None:
+    _guard.reset()

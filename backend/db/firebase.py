@@ -54,6 +54,12 @@ class InMemoryStore:
             self._shots.clear()
             return count
 
+    async def delete_session(self, session_id: str) -> int:
+        async with self._lock:
+            before = len(self._shots)
+            self._shots = [s for s in self._shots if s.session_id != session_id]
+            return before - len(self._shots)
+
 
 # ─── Firebase store ───────────────────────────────────────────────────────────
 
@@ -106,23 +112,42 @@ class FirebaseStore:
         def _fetch():
             q = self._col.order_by("timestamp", direction="DESCENDING")
             if session_id:
-                q = q.where("session_id", "==", session_id)
+                docs = list(q.limit(10_000).stream())
+                records = [
+                    ShotRecord.from_dict(d.to_dict())
+                    for d in docs
+                    if d.to_dict().get("session_id") == session_id
+                ]
+                total = len(records)
+                return records[offset : offset + limit], total
             # Firestore offset is approximate; use for pagination
             if offset:
                 q = q.offset(offset)
             docs = list(q.limit(limit).stream())
-            return [ShotRecord.from_dict(d.to_dict()) for d in docs]
+            return [ShotRecord.from_dict(d.to_dict()) for d in docs], len(docs) + offset
 
-        shots = await loop.run_in_executor(None, _fetch)
-        # Total count (separate query for accuracy)
-        total = len(shots) + offset   # approximation; replace with count() if Firestore v1
-        return shots, total
+        return await loop.run_in_executor(None, _fetch)
 
     async def delete_all(self) -> int:
         loop = asyncio.get_event_loop()
 
         def _delete():
             docs  = list(self._col.stream())
+            batch = self._db.batch()
+            for doc in docs:
+                batch.delete(doc.reference)
+            batch.commit()
+            return len(docs)
+
+        return await loop.run_in_executor(None, _delete)
+
+    async def delete_session(self, session_id: str) -> int:
+        loop = asyncio.get_event_loop()
+
+        def _delete():
+            docs = list(self._col.where("session_id", "==", session_id).stream())
+            if not docs:
+                return 0
             batch = self._db.batch()
             for doc in docs:
                 batch.delete(doc.reference)

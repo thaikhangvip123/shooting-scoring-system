@@ -12,8 +12,6 @@ const COLUMNS = [
   { key: 'score',     label: 'Score',    width: 64  },
   { key: 'x_px',      label: 'X (px)',   width: 80  },
   { key: 'y_px',      label: 'Y (px)',   width: 80  },
-  { key: 'radius',    label: 'R (px)',   width: 80  },
-  { key: 'ring',      label: 'Ring',     width: 56  },
   { key: 'session',   label: 'Session',  width: 90  },
 ];
 
@@ -33,7 +31,6 @@ export default function ShotTable({ shots = [], latestId = null }) {
       index:  shots.length - i,
       x_px: Number(s.x_px ?? s.x_mm ?? 0),
       y_px: Number(s.y_px ?? s.y_mm ?? 0),
-      radius: s.radius_px ?? Math.sqrt(Number(s.x_px ?? s.x_mm ?? 0) ** 2 + Number(s.y_px ?? s.y_mm ?? 0) ** 2),
     }));
 
     if (filter.trim()) {
@@ -41,8 +38,7 @@ export default function ShotTable({ shots = [], latestId = null }) {
       rows = rows.filter(
         (r) =>
           String(r.score).includes(q) ||
-          String(r.ring ?? '').toLowerCase().includes(q) ||
-          String(r.session ?? '').toLowerCase().includes(q)
+          String(r.session_id ?? '').toLowerCase().includes(q)
       );
     }
 

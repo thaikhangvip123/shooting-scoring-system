@@ -52,11 +52,20 @@ export const getStats = (sessionId = null) =>
   http.get('/stats', { params: sessionId ? { session_id: sessionId } : {} });
 
 /** GET heatmap bin data (NxN grid of hit counts) */
-export const getHeatmap = (resolution = 50) =>
-  http.get('/heatmap', { params: { resolution } });
+export const getHeatmap = (resolution = 50, sessionId = null) =>
+  http.get('/heatmap', {
+    params: sessionId ? { resolution, session_id: sessionId } : { resolution },
+  });
 
-/** DELETE all shots (reset session) */
+/** DELETE shots in the current session */
 export const resetSession = () => http.delete('/shots');
+
+/** GET current shooting session status */
+export const getSessionStatus = () => http.get('/session');
+
+/** PUT shots-per-session setting */
+export const updateSessionSettings = (shotsPerSession) =>
+  http.put('/session', { shots_per_session: shotsPerSession });
 
 // ─── WebSocket factory ────────────────────────────────────────────────────────
 
@@ -68,7 +77,7 @@ export const resetSession = () => http.delete('/shots');
  * @param {(err:  Event)  => void} onError  – called on connection error
  * @returns {WebSocket}
  */
-export const openShotsSocket = (onShot, onError) => {
+export const openShotsSocket = (onShot, onError, onControl) => {
   const ws = new WebSocket(`${WS_URL}/shots`);
 
   ws.onopen = () => console.info('[WS] Connected to /ws/shots');
@@ -78,6 +87,10 @@ export const openShotsSocket = (onShot, onError) => {
       const data = JSON.parse(event.data);
       // Backend sends control messages too; don't treat them as shots.
       if (data?.type === 'connected' || data?.type === 'ping') return;
+      if (data?.type) {
+        onControl?.(data);
+        return;
+      }
       onShot(data);
     } catch (e) {
       console.warn('[WS] Unparseable message', event.data);

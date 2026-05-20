@@ -1,11 +1,10 @@
 /**
  * components/layout/Header.jsx
- * Top bar: page title, shot counter, session reset, export actions.
+ * Top bar: page title, session status, export actions, reset, and counters.
  */
 
 import { useLocation } from 'react-router-dom';
 import ExportButtons from '@/components/shared/ExportButtons';
-import { resetSession } from '@/api/client';
 
 const PAGE_TITLES = {
   '/':          'Dashboard',
@@ -16,17 +15,19 @@ const PAGE_TITLES = {
   '/settings':  'Settings',
 };
 
-export default function Header({ shots, onReset }) {
+export default function Header({ shots, session, onReset }) {
   const location = useLocation();
   const title    = PAGE_TITLES[location.pathname] ?? 'Shooting Score';
   const total    = shots.length;
   const totalScore = shots.reduce((s, sh) => s + (sh.score ?? 0), 0);
+  const sessionLabel = session
+    ? `Session ${session.session_number} (${session.shot_count}/${session.shots_per_session})`
+    : 'Session -';
 
   const handleReset = async () => {
-    if (!window.confirm('Reset all shots in this session?')) return;
+    if (!window.confirm('Reset current session?')) return;
     try {
-      await resetSession();
-      onReset();
+      await onReset();
     } catch (e) {
       console.error('Reset failed', e);
     }
@@ -45,15 +46,45 @@ export default function Header({ shots, onReset }) {
         gap: 16,
       }}
     >
-      {/* Title */}
       <h1 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--c-text-1)' }}>
         {title}
       </h1>
 
-      {/* Spacer */}
       <div style={{ flex: 1 }} />
 
-      {/* Quick stats */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <span
+          style={{
+            fontSize: 12,
+            fontWeight: 700,
+            color: 'var(--c-text-1)',
+            padding: '7px 10px',
+            border: '1px solid var(--c-border)',
+            borderRadius: 6,
+            background: 'var(--c-bg-0)',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {sessionLabel}
+        </span>
+        {session?.completed && (
+          <span
+            style={{
+              fontSize: 12,
+              fontWeight: 700,
+              color: 'var(--c-success)',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Session complete
+          </span>
+        )}
+        <ExportButtons shots={shots} />
+        <button className="btn" onClick={handleReset} title="Reset current session">
+          Reset
+        </button>
+      </div>
+
       <div
         style={{
           display: 'flex',
@@ -69,14 +100,6 @@ export default function Header({ shots, onReset }) {
           Total{' '}
           <span style={{ fontWeight: 600, color: 'var(--c-accent-h)' }}>{totalScore}</span>
         </span>
-      </div>
-
-      {/* Actions */}
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <ExportButtons shots={shots} />
-        <button className="btn" onClick={handleReset} title="Reset session">
-          ↺ Reset
-        </button>
       </div>
     </header>
   );

@@ -9,13 +9,42 @@ import StatsPanel      from '@/components/stats/StatsPanel';
 import ScoreHistogram  from '@/components/charts/ScoreHistogram';
 import { fmtRelative } from '@/utils/format';
 import { scoreTargetShot, shotTargetType } from '@/utils/targetGeometry';
+import { useEffect, useState } from 'react';
 
-export default function DashboardPage({ shots, latestShot, stats, targetType, onTargetTypeChange }) {
-  const targetShots = shots.filter((shot) => shotTargetType(shot) === targetType);
+export default function DashboardPage({
+  shots,
+  currentShots,
+  stats,
+  targetType,
+  onTargetTypeChange,
+  session,
+  onShotsPerSessionChange,
+}) {
+  const visibleShots = currentShots ?? shots;
+  const targetShots = visibleShots.filter((shot) => shotTargetType(shot) === targetType);
   const latestTargetShot = targetShots[0] ?? null;
+  const [draftShotsPerSession, setDraftShotsPerSession] = useState(session?.shots_per_session ?? 10);
+  const [savingSession, setSavingSession] = useState(false);
   const { color, label } = latestTargetShot
     ? scoreTargetShot(latestTargetShot, targetType)
     : {};
+
+  useEffect(() => {
+    if (session?.shots_per_session) {
+      setDraftShotsPerSession(session.shots_per_session);
+    }
+  }, [session?.shots_per_session]);
+
+  const handleSessionSave = async () => {
+    const next = Math.min(15, Math.max(5, Number(draftShotsPerSession) || 10));
+    setDraftShotsPerSession(next);
+    setSavingSession(true);
+    try {
+      await onShotsPerSessionChange?.(next);
+    } finally {
+      setSavingSession(false);
+    }
+  };
 
   return (
     <div style={{ display: 'flex', gap: 20, height: '100%', minHeight: 0 }}>
@@ -56,14 +85,69 @@ export default function DashboardPage({ shots, latestShot, stats, targetType, on
         {/* Target */}
         <div className="card" style={{ padding: 16, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
           <TargetTypeSelector value={targetType} onChange={onTargetTypeChange} />
-          <TargetCanvas shots={shots} latestShot={latestTargetShot} targetType={targetType} />
+          <TargetCanvas shots={visibleShots} latestShot={latestTargetShot} targetType={targetType} />
+          <div
+            style={{
+              width: '100%',
+              borderTop: '1px solid var(--c-border)',
+              paddingTop: 12,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              fontSize: 12,
+              color: 'var(--c-text-2)',
+            }}
+          >
+            <span style={{ fontWeight: 600, color: 'var(--c-text-1)' }}>Session shots</span>
+            <input
+              type="number"
+              min="5"
+              max="15"
+              value={draftShotsPerSession}
+              onChange={(event) => setDraftShotsPerSession(event.target.value)}
+              style={{
+                width: 64,
+                height: 32,
+                border: '1px solid var(--c-border)',
+                borderRadius: 6,
+                background: 'var(--c-bg-0)',
+                color: 'var(--c-text-1)',
+                padding: '0 8px',
+                fontSize: 13,
+              }}
+            />
+            <span>5-15</span>
+            {session?.completed && (
+              <span
+                style={{
+                  color: 'var(--c-success)',
+                  fontWeight: 700,
+                  marginLeft: 4,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Session complete
+              </span>
+            )}
+            <button
+              className="btn"
+              onClick={handleSessionSave}
+              disabled={
+                savingSession ||
+                (!session?.completed && Number(draftShotsPerSession) === session?.shots_per_session)
+              }
+              style={{ marginLeft: 'auto' }}
+            >
+              {savingSession ? 'Saving...' : session?.completed ? 'Apply New Session' : 'Apply'}
+            </button>
+          </div>
         </div>
       </div>
 
       {/* ── Right column: Stats + histogram ─────────────────────────── */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
-        <StatsPanel shots={shots} stats={stats} />
-        <ScoreHistogram shots={shots} />
+        <StatsPanel shots={visibleShots} stats={stats} />
+        <ScoreHistogram shots={visibleShots} />
 
         {/* Recent shots mini-list */}
         <div className="card" style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
@@ -72,8 +156,8 @@ export default function DashboardPage({ shots, latestShot, stats, targetType, on
             <span style={{ fontSize: 11, color: 'var(--c-text-3)' }}>last 10</span>
           </div>
           <div style={{ overflowY: 'auto', maxHeight: 220 }}>
-            {targetShots.slice(0, 10).map((s, i) => {
-              const { color: sc, label: sl } = scoreTargetShot(s, targetType);
+            {shots.slice(0, 10).map((s, i) => {
+              const { color: sc, label: sl } = scoreTargetShot(s, shotTargetType(s));
               return (
                 <div
                   key={s.id}
@@ -87,7 +171,7 @@ export default function DashboardPage({ shots, latestShot, stats, targetType, on
                   }}
                 >
                   <span style={{ color: 'var(--c-text-3)', fontSize: 11, width: 18, textAlign: 'right' }}>
-                    {targetShots.length - i}
+                    {shots.length - i}
                   </span>
                   <span style={{ fontWeight: 700, color: sc, fontSize: 15, width: 24 }}>
                     {s.score}
@@ -102,7 +186,7 @@ export default function DashboardPage({ shots, latestShot, stats, targetType, on
                 </div>
               );
             })}
-            {targetShots.length === 0 && (
+            {shots.length === 0 && (
               <div style={{ padding: 24, textAlign: 'center', color: 'var(--c-text-3)' }}>
                 No shots yet
               </div>

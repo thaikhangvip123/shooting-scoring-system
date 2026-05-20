@@ -19,8 +19,21 @@ import HeatmapPage   from '@/pages/HeatmapPage';
 import SettingsPage  from '@/pages/SettingsPage';
 
 export default function App() {
-  const { shots, latestShot, loading, error, wsStatus, reset } = useShots();
-  const { stats, heatmap }                                       = useStats(shots.length);
+  const {
+    shots,
+    loading,
+    error,
+    session,
+    wsStatus,
+    reset,
+    setShotsPerSession,
+  } = useShots();
+  const currentSessionId = session?.session_id ?? null;
+  const currentShots = currentSessionId
+    ? shots.filter((shot) => shot.session_id === currentSessionId)
+    : shots;
+  const latestShot = currentShots[0] ?? null;
+  const { stats, heatmap }                                       = useStats(currentShots.length, currentSessionId);
   const [targetType, setTargetType]                              = useState('TRON');
 
   return (
@@ -35,7 +48,7 @@ export default function App() {
       <Sidebar wsStatus={wsStatus} />
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        <Header shots={shots} onReset={reset} />
+        <Header shots={currentShots} session={session} onReset={reset} />
 
         {/* Global error banner */}
         {error && (
@@ -78,10 +91,12 @@ export default function App() {
                   element={
                     <DashboardPage
                       shots={shots}
-                      latestShot={latestShot}
+                      currentShots={currentShots}
                       stats={stats}
                       targetType={targetType}
                       onTargetTypeChange={setTargetType}
+                      session={session}
+                      onShotsPerSessionChange={setShotsPerSession}
                     />
                   }
                 />
@@ -89,7 +104,7 @@ export default function App() {
                   path="/target"
                   element={
                     <TargetPage
-                      shots={shots}
+                      shots={currentShots}
                       latestShot={latestShot}
                       targetType={targetType}
                       onTargetTypeChange={setTargetType}
@@ -102,13 +117,13 @@ export default function App() {
                 />
                 <Route
                   path="/analytics"
-                  element={<AnalyticsPage shots={shots} stats={stats} />}
+                  element={<AnalyticsPage shots={currentShots} stats={stats} />}
                 />
                 <Route
                   path="/heatmap"
                   element={
                     <HeatmapPage
-                      shots={shots}
+                      shots={currentShots}
                       heatmap={heatmap}
                       targetType={targetType}
                       onTargetTypeChange={setTargetType}

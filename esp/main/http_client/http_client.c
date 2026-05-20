@@ -1,7 +1,7 @@
 /**
  * http_client.c
  *
- * Pulls existing shot history from GET /history?limit=20 on startup.
+ * Pulls existing current-session shot history from GET /history?limit=20&current_session=true on startup.
  * The backend returns:
  * {
  *   "shots": [ { "id":..., "x_mm":..., "y_mm":..., "score":..., "ring":... }, ... ],
@@ -145,7 +145,7 @@ void http_pull_history(void)
 {
     char url[160];
     snprintf(url, sizeof(url),
-             "http://%s:%d/history?limit=%d",
+             "http://%s:%d/history?limit=%d&current_session=true",
              CONFIG_SHOOT_BACKEND_HOST,
              CONFIG_SHOOT_BACKEND_PORT,
              HISTORY_LIMIT);

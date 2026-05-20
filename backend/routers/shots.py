@@ -10,10 +10,13 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
 
+from backend.models.session import SessionSettings, SessionStatus
 from backend.models.shot import ShotCreate, ShotResponse, ShotHistoryResponse
 from backend.services import shot_service
+from backend.services.session_service import session_manager
 from backend.services.export_service import shots_to_csv, shots_to_pdf
 from backend.db.firebase import get_store
+from backend.routers.websocket import manager as ws_manager
 
 router = APIRouter(prefix="", tags=["shots"])
 # router = logger  # alias to keep variable name consistent
@@ -50,18 +53,53 @@ async def get_history(
     limit:      int          = Query(200, ge=1,  le=2000),
     offset:     int          = Query(0,   ge=0),
     session_id: Optional[str]= Query(None),
+    current_session: bool    = Query(False),
 ) -> ShotHistoryResponse:
+    if current_session:
+        session_id = (await session_manager.get_status()).session_id
     return await shot_service.get_shot_history(limit, offset, session_id)
 
 
 @router.delete(
     "/shots",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Delete all shots (reset session)",
+    summary="Delete shots in the current session",
 )
 async def delete_shots():
-    await shot_service.delete_all_shots()
+    session_id, deleted = await shot_service.reset_current_session()
+    if ws_manager.client_count > 0:
+        session = await session_manager.get_status()
+        await ws_manager.broadcast({
+            "type": "session_reset",
+            "session_id": session_id,
+            "deleted": deleted,
+            "session": session.model_dump(),
+        })
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get(
+    "/session",
+    response_model=SessionStatus,
+    summary="Get current shooting session status",
+)
+async def get_session() -> SessionStatus:
+    return await session_manager.get_status()
+
+
+@router.put(
+    "/session",
+    response_model=SessionStatus,
+    summary="Update shots per session",
+)
+async def update_session(settings: SessionSettings) -> SessionStatus:
+    session = await session_manager.update_settings(settings)
+    if ws_manager.client_count > 0:
+        await ws_manager.broadcast({
+            "type": "session_updated",
+            "session": session.model_dump(),
+        })
+    return session
 
 # ─── Export endpoints ─────────────────────────────────────────────────────────
 

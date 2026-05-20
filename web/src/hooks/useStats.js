@@ -14,14 +14,14 @@ const POLL_MS = 5000; // fallback polling interval
  * @param {number} shotCount – dependency from useShots to trigger re-fetch
  * @returns {{ stats: object|null, heatmap: number[][]|null, statsLoading: boolean }}
  */
-export function useStats(shotCount = 0) {
+export function useStats(shotCount = 0, sessionId = null) {
   const [stats,        setStats]        = useState(null);
   const [heatmap,      setHeatmap]      = useState(null);
   const [statsLoading, setStatsLoading] = useState(true);
 
   const fetchAll = useCallback(async () => {
     try {
-      const [s, h] = await Promise.all([getStats(), getHeatmap(50)]);
+      const [s, h] = await Promise.all([getStats(sessionId), getHeatmap(50, sessionId)]);
       setStats(s);
       setHeatmap(h?.grid ?? null);
     } catch (e) {
@@ -29,7 +29,7 @@ export function useStats(shotCount = 0) {
     } finally {
       setStatsLoading(false);
     }
-  }, []);
+  }, [sessionId]);
 
   // Re-fetch whenever a new shot arrives
   useEffect(() => {

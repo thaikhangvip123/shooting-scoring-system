@@ -3,14 +3,11 @@
  */
 
 import { fmtTime, scoreBadgeClass } from '@/utils/format';
-import { scoreShot } from '@/utils/scoring';
 
 export default function ShotRow({ shot, isLatest }) {
   const x = Number(shot.x_px ?? shot.x_mm ?? 0);
   const y = Number(shot.y_px ?? shot.y_mm ?? 0);
-  const { label, color } = scoreShot(x, y);
-  const badgeClass       = scoreBadgeClass(shot.score);
-  const radius           = shot.radius_px ?? shot.radius ?? Math.sqrt(x ** 2 + y ** 2);
+  const badgeClass = scoreBadgeClass(shot.score);
 
   return (
     <tr
@@ -36,15 +33,10 @@ export default function ShotRow({ shot, isLatest }) {
       <td style={{ padding: '7px 12px', fontFamily: 'monospace', color: 'var(--c-text-2)' }}>
         {y.toFixed(2)} px
       </td>
-      <td style={{ padding: '7px 12px', fontFamily: 'monospace', color: 'var(--c-text-2)' }}>
-        {radius.toFixed(2)} px
-      </td>
-      <td style={{ padding: '7px 12px' }}>
-        <span style={{ color, fontWeight: 600, fontSize: 13 }}>{label}</span>
-      </td>
       <td style={{ padding: '7px 12px', color: 'var(--c-text-3)', fontSize: 11 }}>
-        {shot.session_id?.slice(0, 8) ?? '—'}
+        {shot.session_id?.slice(0, 8) ?? '-'}
       </td>
     </tr>
   );
 }
+

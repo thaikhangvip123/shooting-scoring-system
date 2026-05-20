@@ -61,6 +61,35 @@ static void copy_target_type(cJSON *root, shot_event_t *out)
     }
 }
 
+static bool handle_control_message(const char *data, int len)
+{
+    char *buf = malloc(len + 1);
+    if (!buf) {
+        ESP_LOGE(TAG, "OOM allocating control buffer");
+        return false;
+    }
+    memcpy(buf, data, len);
+    buf[len] = '\0';
+
+    bool handled = false;
+    cJSON *root = cJSON_Parse(buf);
+    if (!root) goto done;
+
+    cJSON *type = cJSON_GetObjectItem(root, "type");
+    if (!cJSON_IsString(type) || !type->valuestring) goto done;
+
+    handled = true;
+    if (strcmp(type->valuestring, "session_reset") == 0) {
+        ESP_LOGI(TAG, "Session reset control received");
+        ui_reset();
+    }
+
+done:
+    cJSON_Delete(root);
+    free(buf);
+    return handled;
+}
+
 // ─── JSON → shot_event_t ──────────────────────────────────────────────────────
 
 /**
@@ -171,6 +200,7 @@ static void ws_event_handler(void *handler_args,
             // Only process text frames (opcode 0x01)
             if (data->op_code != 0x01) break;
             if (data->data_len <= 0)   break;
+            if (handle_control_message(data->data_ptr, data->data_len)) break;
 
             shot_event_t shot;
             if (!parse_shot(data->data_ptr, data->data_len, &shot)) break;

@@ -1,17 +1,20 @@
 /**
  * hooks/useShots.js
- * Manages the shots list with:
- *  – initial REST load on mount
- *  – live append via WebSocket
- *  – automatic reconnect with exponential back-off
+ * Manages shot history, live WebSocket updates, session status, and reset.
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { getShotHistory, openShotsSocket } from '@/api/client';
+import {
+  getShotHistory,
+  getSessionStatus,
+  openShotsSocket,
+  resetSession,
+  updateSessionSettings,
+} from '@/api/client';
 
-const MAX_SHOTS        = 500;   // cap in-memory history
-const INITIAL_BACKOFF  = 1000;  // ms
-const MAX_BACKOFF      = 30000; // ms
+const MAX_SHOTS       = 500;
+const INITIAL_BACKOFF = 1000;
+const MAX_BACKOFF     = 30000;
 
 function dedupeById(items = []) {
   const seen = new Set();
@@ -25,28 +28,18 @@ function dedupeById(items = []) {
   return out;
 }
 
-/**
- * @returns {{
- *   shots:      object[],
- *   latestShot: object | null,
- *   loading:    boolean,
- *   error:      string | null,
- *   wsStatus:   'connecting'|'open'|'closed'|'error',
- *   reset:      () => void,
- * }}
- */
 export function useShots() {
-  const [shots,      setShots]     = useState([]);
-  const [loading,    setLoading]   = useState(true);
-  const [error,      setError]     = useState(null);
-  const [wsStatus,   setWsStatus]  = useState('connecting');
+  const [shots, setShots]       = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState(null);
+  const [session, setSession]   = useState(null);
+  const [wsStatus, setWsStatus] = useState('connecting');
 
   const wsRef      = useRef(null);
   const backoffRef = useRef(INITIAL_BACKOFF);
   const retryTimer = useRef(null);
   const mounted    = useRef(true);
 
-  // ── Initial load ────────────────────────────────────────────────────────────
   const fetchHistory = useCallback(async () => {
     try {
       setLoading(true);
@@ -63,33 +56,54 @@ export function useShots() {
     }
   }, []);
 
-  // ── WebSocket connect (with reconnect) ──────────────────────────────────────
+  const fetchSession = useCallback(async () => {
+    try {
+      const data = await getSessionStatus();
+      if (mounted.current) setSession(data);
+      return data;
+    } catch (e) {
+      if (mounted.current) setError(e.message);
+      return null;
+    }
+  }, []);
+
   const connect = useCallback(() => {
     if (!mounted.current) return;
     setWsStatus('connecting');
 
     const ws = openShotsSocket(
-      // onShot
       (shot) => {
         if (!mounted.current) return;
-        backoffRef.current = INITIAL_BACKOFF; // reset on successful message
+        backoffRef.current = INITIAL_BACKOFF;
         setShots((prev) => {
           const next = dedupeById([shot, ...prev]);
           return next.length > MAX_SHOTS ? next.slice(0, MAX_SHOTS) : next;
         });
+        fetchSession();
         setWsStatus('open');
       },
-      // onError
       () => {
         if (mounted.current) setWsStatus('error');
+      },
+      (message) => {
+        if (!mounted.current) return;
+        if (message.type === 'session_reset' && message.session_id) {
+          setShots((prev) => prev.filter((shot) => shot.session_id !== message.session_id));
+        }
+        if (message.session) {
+          setSession(message.session);
+        } else {
+          fetchSession();
+        }
       }
     );
 
-    ws.addEventListener('open',  () => { if (mounted.current) setWsStatus('open'); });
+    ws.addEventListener('open', () => {
+      if (mounted.current) setWsStatus('open');
+    });
     ws.addEventListener('close', () => {
       if (!mounted.current) return;
       setWsStatus('closed');
-      // Exponential back-off reconnect
       retryTimer.current = setTimeout(() => {
         backoffRef.current = Math.min(backoffRef.current * 2, MAX_BACKOFF);
         connect();
@@ -97,18 +111,32 @@ export function useShots() {
     });
 
     wsRef.current = ws;
+  }, [fetchSession]);
+
+  const reset = useCallback(async () => {
+    try {
+      setError(null);
+      await resetSession();
+      await Promise.all([fetchHistory(), fetchSession()]);
+    } catch (e) {
+      if (mounted.current) setError(e.message);
+    }
+  }, [fetchHistory, fetchSession]);
+
+  const setShotsPerSession = useCallback(async (count) => {
+    try {
+      setError(null);
+      const next = await updateSessionSettings(count);
+      if (mounted.current) setSession(next);
+    } catch (e) {
+      if (mounted.current) setError(e.message);
+    }
   }, []);
 
-  // ── Reset helper ────────────────────────────────────────────────────────────
-  const reset = useCallback(() => {
-    setShots([]);
-    fetchHistory();
-  }, [fetchHistory]);
-
-  // ── Effects ─────────────────────────────────────────────────────────────────
   useEffect(() => {
     mounted.current = true;
     fetchHistory();
+    fetchSession();
     connect();
 
     return () => {
@@ -116,14 +144,17 @@ export function useShots() {
       clearTimeout(retryTimer.current);
       wsRef.current?.close();
     };
-  }, [fetchHistory, connect]);
+  }, [fetchHistory, fetchSession, connect]);
 
   return {
     shots,
     latestShot: shots[0] ?? null,
     loading,
     error,
+    session,
     wsStatus,
     reset,
+    setShotsPerSession,
   };
 }
+

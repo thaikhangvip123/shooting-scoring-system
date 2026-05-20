@@ -163,9 +163,9 @@ async def get_stats(session_id: Optional[str] = None) -> StatsResponse:
     )
 
 
-async def get_heatmap(resolution: int = 50) -> HeatmapResponse:
+async def get_heatmap(resolution: int = 50, session_id: Optional[str] = None) -> HeatmapResponse:
     store         = get_store()
-    shots, _total = await store.get_history(limit=10_000)
+    shots, _total = await store.get_history(limit=10_000, session_id=session_id)
 
     return HeatmapResponse(
         resolution       = resolution,

@@ -31,5 +31,6 @@ async def stats_endpoint(
 )
 async def heatmap_endpoint(
     resolution: int = Query(50, ge=10, le=200, description="Grid size NxN"),
+    session_id: Optional[str] = Query(None, description="Filter by session ID"),
 ) -> HeatmapResponse:
-    return await get_heatmap(resolution)
+    return await get_heatmap(resolution, session_id)
