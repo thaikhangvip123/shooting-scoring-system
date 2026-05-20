@@ -9,6 +9,7 @@ import {
   getSessionStatus,
   openShotsSocket,
   resetSession,
+  startSession,
   updateSessionSettings,
 } from '@/api/client';
 
@@ -123,6 +124,18 @@ export function useShots() {
     }
   }, [fetchHistory, fetchSession]);
 
+  const start = useCallback(async (targetType = 'TRON') => {
+    try {
+      setError(null);
+      const next = await startSession(targetType);
+      if (mounted.current) setSession(next);
+      return next;
+    } catch (e) {
+      if (mounted.current) setError(e.message);
+      throw e;
+    }
+  }, []);
+
   const setShotsPerSession = useCallback(async (count) => {
     try {
       setError(null);
@@ -154,6 +167,7 @@ export function useShots() {
     session,
     wsStatus,
     reset,
+    start,
     setShotsPerSession,
   };
 }

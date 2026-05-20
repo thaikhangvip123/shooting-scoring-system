@@ -15,7 +15,7 @@ const PAGE_TITLES = {
   '/settings':  'Settings',
 };
 
-export default function Header({ shots, session, onReset }) {
+export default function Header({ shots, session, onReset, onStart, targetType = 'TRON' }) {
   const location = useLocation();
   const title    = PAGE_TITLES[location.pathname] ?? 'Shooting Score';
   const total    = shots.length;
@@ -30,6 +30,14 @@ export default function Header({ shots, session, onReset }) {
       await onReset();
     } catch (e) {
       console.error('Reset failed', e);
+    }
+  };
+
+  const handleStart = async () => {
+    try {
+      await onStart?.(targetType);
+    } catch (e) {
+      console.error('Start session failed', e);
     }
   };
 
@@ -80,6 +88,9 @@ export default function Header({ shots, session, onReset }) {
           </span>
         )}
         <ExportButtons shots={shots} />
+        <button className="btn btn-accent" onClick={handleStart} title="Start CV session">
+          Start Session
+        </button>
         <button className="btn" onClick={handleReset} title="Reset current session">
           Reset
         </button>

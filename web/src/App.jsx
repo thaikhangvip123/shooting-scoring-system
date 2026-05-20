@@ -26,6 +26,7 @@ export default function App() {
     session,
     wsStatus,
     reset,
+    start,
     setShotsPerSession,
   } = useShots();
   const currentSessionId = session?.session_id ?? null;
@@ -48,7 +49,13 @@ export default function App() {
       <Sidebar wsStatus={wsStatus} />
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        <Header shots={currentShots} session={session} onReset={reset} />
+        <Header
+          shots={currentShots}
+          session={session}
+          onReset={reset}
+          onStart={start}
+          targetType={targetType}
+        />
 
         {/* Global error banner */}
         {error && (

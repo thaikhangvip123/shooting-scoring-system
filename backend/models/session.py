@@ -12,6 +12,10 @@ class SessionSettings(BaseModel):
     shots_per_session: int = Field(10, ge=5, le=15)
 
 
+class SessionStartRequest(BaseModel):
+    target_type: str = "TRON"
+
+
 class SessionStatus(BaseModel):
     session_id: str
     session_number: int

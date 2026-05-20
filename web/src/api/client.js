@@ -60,6 +60,10 @@ export const getHeatmap = (resolution = 50, sessionId = null) =>
 /** DELETE shots in the current session */
 export const resetSession = () => http.delete('/shots');
 
+/** POST start command for the selected target */
+export const startSession = (targetType = 'TRON') =>
+  http.post('/session/start', { target_type: targetType });
+
 /** GET current shooting session status */
 export const getSessionStatus = () => http.get('/session');
 

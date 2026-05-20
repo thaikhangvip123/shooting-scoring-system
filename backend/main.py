@@ -21,6 +21,7 @@ from backend.routers import shots as shots_router
 from backend.routers import stats as stats_router
 from backend.routers import websocket as ws_router
 from backend.routers.websocket import manager as ws_manager
+from backend.services.session_service import session_manager
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
 
@@ -46,7 +47,17 @@ if not getattr(_ss, "_ws_broadcast_patch_applied", False):
         # Broadcast to all WS clients — fire-and-forget
         if ws_manager.client_count > 0:
             import asyncio
-            asyncio.create_task(ws_manager.broadcast(result.model_dump(mode="json")))
+
+            async def _broadcast_events() -> None:
+                await ws_manager.broadcast(result.model_dump(mode="json"))
+                session = await session_manager.get_status()
+                if session.completed:
+                    await ws_manager.broadcast({
+                        "type": "session_completed",
+                        "session": session.model_dump(),
+                    })
+
+            asyncio.create_task(_broadcast_events())
         return result
 
     _ss.register_shot = _register_and_broadcast  # monkey-patch

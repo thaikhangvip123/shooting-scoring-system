@@ -10,7 +10,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
 
-from backend.models.session import SessionSettings, SessionStatus
+from backend.models.session import SessionSettings, SessionStartRequest, SessionStatus
 from backend.models.shot import ShotCreate, ShotResponse, ShotHistoryResponse
 from backend.services import shot_service
 from backend.services.session_service import session_manager
@@ -20,6 +20,20 @@ from backend.routers.websocket import manager as ws_manager
 
 router = APIRouter(prefix="", tags=["shots"])
 # router = logger  # alias to keep variable name consistent
+
+TARGET_NAME_MAP = {
+    "TRON": "BIA_TRON",
+    "IPSC": "BIA_IPSC",
+    "NGUOI": "BIA_NGUOI",
+    "BIA_TRON": "BIA_TRON",
+    "BIA_IPSC": "BIA_IPSC",
+    "BIA_NGUOI": "BIA_NGUOI",
+}
+
+
+def _to_cv_target(target_type: str | None) -> str:
+    normalized = (target_type or "TRON").strip().upper()
+    return TARGET_NAME_MAP.get(normalized, "BIA_TRON")
 
 
 @router.post(
@@ -97,6 +111,24 @@ async def update_session(settings: SessionSettings) -> SessionStatus:
     if ws_manager.client_count > 0:
         await ws_manager.broadcast({
             "type": "session_updated",
+            "session": session.model_dump(),
+        })
+    return session
+
+
+@router.post(
+    "/session/start",
+    response_model=SessionStatus,
+    summary="Start CV detection for the selected target",
+)
+async def start_session(payload: SessionStartRequest) -> SessionStatus:
+    session = await session_manager.get_status()
+    target = _to_cv_target(payload.target_type)
+    if ws_manager.client_count > 0:
+        await ws_manager.broadcast({
+            "type": "cv_start",
+            "target": target,
+            "target_type": payload.target_type,
             "session": session.model_dump(),
         })
     return session
