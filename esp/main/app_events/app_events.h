@@ -30,6 +30,7 @@ extern "C" {
 
 #define SHOT_ID_LEN     37    // UUID string length + null
 #define SHOT_RING_LEN   4     // "X", "10".."1", "M" + null
+#define SHOT_TARGET_LEN 8     // "TRON", "IPSC", "NGUOI" + null
 
 typedef struct {
     char    id[SHOT_ID_LEN];
@@ -38,6 +39,7 @@ typedef struct {
     float   radius_mm;
     int     score;
     char    ring[SHOT_RING_LEN];
+    char    target_type[SHOT_TARGET_LEN];
     // timestamp kept as epoch seconds (parsed from ISO string) for display
     int64_t ts_epoch;
 } shot_event_t;

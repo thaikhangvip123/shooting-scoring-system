@@ -38,6 +38,29 @@ static const char *TAG = "ws_client";
 
 static esp_websocket_client_handle_t s_client = NULL;
 
+static cJSON *get_first_present(cJSON *root, const char *primary, const char *fallback)
+{
+    cJSON *item = cJSON_GetObjectItem(root, primary);
+    return item ? item : cJSON_GetObjectItem(root, fallback);
+}
+
+static void copy_target_type(cJSON *root, shot_event_t *out)
+{
+    snprintf(out->target_type, sizeof(out->target_type), "TRON");
+
+    cJSON *target = cJSON_GetObjectItem(root, "target_type");
+    if (!cJSON_IsString(target)) {
+        cJSON *metadata = cJSON_GetObjectItem(root, "metadata");
+        if (cJSON_IsObject(metadata)) {
+            target = cJSON_GetObjectItem(metadata, "target_type");
+        }
+    }
+
+    if (cJSON_IsString(target) && target->valuestring) {
+        snprintf(out->target_type, sizeof(out->target_type), "%s", target->valuestring);
+    }
+}
+
 // ─── JSON → shot_event_t ──────────────────────────────────────────────────────
 
 /**
@@ -74,11 +97,11 @@ static bool parse_shot(const char *data, int len, shot_event_t *out)
     }
 
     // Mandatory numeric fields
-    cJSON *x    = cJSON_GetObjectItem(root, "x_mm");
-    cJSON *y    = cJSON_GetObjectItem(root, "y_mm");
+    cJSON *x    = get_first_present(root, "x_mm", "x_px");
+    cJSON *y    = get_first_present(root, "y_mm", "y_px");
     cJSON *sc   = cJSON_GetObjectItem(root, "score");
     if (!cJSON_IsNumber(x) || !cJSON_IsNumber(y) || !cJSON_IsNumber(sc)) {
-        ESP_LOGW(TAG, "Shot JSON missing x_mm/y_mm/score: %.80s", buf);
+        ESP_LOGW(TAG, "Shot JSON missing x/y/score: %.80s", buf);
         goto done;
     }
 
@@ -94,7 +117,7 @@ static bool parse_shot(const char *data, int len, shot_event_t *out)
     }
 
     // Optional: radius_mm
-    cJSON *r = cJSON_GetObjectItem(root, "radius_mm");
+    cJSON *r = get_first_present(root, "radius_mm", "radius_px");
     if (cJSON_IsNumber(r)) {
         out->radius_mm = (float)r->valuedouble;
     } else {
@@ -109,6 +132,8 @@ static bool parse_shot(const char *data, int len, shot_event_t *out)
     } else {
         snprintf(out->ring, sizeof(out->ring), "%d", out->score);
     }
+
+    copy_target_type(root, out);
 
     ok = true;
 done:

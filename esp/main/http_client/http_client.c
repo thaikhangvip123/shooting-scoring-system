@@ -29,6 +29,29 @@ static const char *TAG = "http_client";
 static char   *s_recv_buf  = NULL;
 static int     s_recv_len  = 0;
 
+static cJSON *get_first_present(cJSON *root, const char *primary, const char *fallback)
+{
+    cJSON *item = cJSON_GetObjectItem(root, primary);
+    return item ? item : cJSON_GetObjectItem(root, fallback);
+}
+
+static void copy_target_type(cJSON *root, shot_event_t *out)
+{
+    snprintf(out->target_type, sizeof(out->target_type), "TRON");
+
+    cJSON *target = cJSON_GetObjectItem(root, "target_type");
+    if (!cJSON_IsString(target)) {
+        cJSON *metadata = cJSON_GetObjectItem(root, "metadata");
+        if (cJSON_IsObject(metadata)) {
+            target = cJSON_GetObjectItem(metadata, "target_type");
+        }
+    }
+
+    if (cJSON_IsString(target) && target->valuestring) {
+        snprintf(out->target_type, sizeof(out->target_type), "%s", target->valuestring);
+    }
+}
+
 // ─── HTTP event handler ───────────────────────────────────────────────────────
 
 static esp_err_t http_event_handler(esp_http_client_event_t *evt)
@@ -76,8 +99,8 @@ static void enqueue_shots_from_json(const char *json_str, int len)
     int enqueued = 0;
     cJSON *item  = NULL;
     cJSON_ArrayForEach(item, shots_arr) {
-        cJSON *x  = cJSON_GetObjectItem(item, "x_mm");
-        cJSON *y  = cJSON_GetObjectItem(item, "y_mm");
+        cJSON *x  = get_first_present(item, "x_mm", "x_px");
+        cJSON *y  = get_first_present(item, "y_mm", "y_px");
         cJSON *sc = cJSON_GetObjectItem(item, "score");
 
         if (!cJSON_IsNumber(x) || !cJSON_IsNumber(y) || !cJSON_IsNumber(sc)) {
@@ -91,7 +114,7 @@ static void enqueue_shots_from_json(const char *json_str, int len)
 
         cJSON *id   = cJSON_GetObjectItem(item, "id");
         cJSON *ring = cJSON_GetObjectItem(item, "ring");
-        cJSON *r    = cJSON_GetObjectItem(item, "radius_mm");
+        cJSON *r    = get_first_present(item, "radius_mm", "radius_px");
 
         if (cJSON_IsString(id)   && id->valuestring)
             snprintf(shot.id,   sizeof(shot.id),   "%s", id->valuestring);
@@ -101,6 +124,8 @@ static void enqueue_shots_from_json(const char *json_str, int len)
             shot.radius_mm = (float)r->valuedouble;
         else
             shot.radius_mm = sqrtf(shot.x_mm * shot.x_mm + shot.y_mm * shot.y_mm);
+
+        copy_target_type(item, &shot);
 
         if (xQueueSend(app_get_shot_queue(), &shot, pdMS_TO_TICKS(50)) == pdTRUE) {
             enqueued++;

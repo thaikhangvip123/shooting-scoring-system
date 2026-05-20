@@ -457,9 +457,8 @@ ESP32-S3 Device
         ├─ Header: Total shots + Total score (fixed)
         ├─ Shot List: Scrollable list of recent shots
         ├─ Button Events:
-        │   ├─ Single click → Test add shot (score 1)
-        │   ├─ Double click → Test add shot (score 3)
-        │   └─ Long press → Reset session
+        │   ├─ Long press → roll down
+        │   ├─ Double click and long press → roll up
         └─ Update Callbacks
             └─ When shot received from backend
                 ├─ Add shot entry to list

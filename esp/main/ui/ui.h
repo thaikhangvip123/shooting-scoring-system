@@ -36,6 +36,9 @@ void ui_add_shot(const shot_event_t *shot);
  */
 void ui_reset(void);
 
+void ui_scroll_latest(void);
+void ui_scroll_oldest(void);
+
 /**
  * Update the WiFi / WebSocket status string shown in the status bar.
  * Thread-safe.
@@ -53,7 +56,7 @@ void ui_set_status(bool wifi_ok, bool ws_ok);
  *
  * Handles:
  *   - shot_queue   → ui_add_shot()
- *   - btn_queue    → BTN_LONG_PRESS → ui_reset()
+ *   - btn_queue    → long press scrolls latest, double click scrolls oldest
  */
 void ui_process_queues(void);
 
