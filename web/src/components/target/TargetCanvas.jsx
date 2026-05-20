@@ -5,6 +5,7 @@
 
 import { useMemo, useState } from 'react';
 import { fmtTime } from '@/utils/format';
+import { fmtSignedMm, shotOffsetMm } from '@/utils/units';
 import {
   TARGET_CANVAS_SIZE,
   TARGET_TYPES,
@@ -166,6 +167,7 @@ export default function TargetCanvas({
 
         {tooltip && (() => {
           const { x, y, shot, score } = tooltip;
+          const offset = shotOffsetMm(shot);
           const tx = x > SIZE / 2 ? x - 110 : x + 10;
           const ty = y > SIZE / 2 ? y - 58 : y + 10;
           return (
@@ -184,7 +186,7 @@ export default function TargetCanvas({
                 Score: {shot.score ?? score.score} ({score.label})
               </text>
               <text x={tx + 8} y={ty + 31} fontSize={10} fill="#9499b0">
-                X: {Number(shot.x_px ?? shot.x_mm ?? 0).toFixed(2)} px Y: {Number(shot.y_px ?? shot.y_mm ?? 0).toFixed(2)} px
+                X: {fmtSignedMm(offset.x, 1)} Y: {fmtSignedMm(offset.y, 1)}
               </text>
               <text x={tx + 8} y={ty + 45} fontSize={10} fill="#9499b0">
                 {fmtTime(shot.timestamp)}

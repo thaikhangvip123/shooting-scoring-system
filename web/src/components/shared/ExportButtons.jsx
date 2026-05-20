@@ -7,19 +7,20 @@
 import { useState } from 'react';
 import { fmtFull } from '@/utils/format';
 import { scoreShot, calcCEP, calcR50, calcGroupSize, radialDeviation } from '@/utils/scoring';
+import { shotOffsetMm, shotRadiusMm } from '@/utils/units';
 
-const shotX = (shot) => Number(shot.x_px ?? shot.x_mm ?? 0);
-const shotY = (shot) => Number(shot.y_px ?? shot.y_mm ?? 0);
+const shotX = (shot) => shotOffsetMm(shot).x;
+const shotY = (shot) => shotOffsetMm(shot).y;
 
 // ─── CSV helper ──────────────────────────────────────────────────────────────
 
 function shotsToCSV(shots) {
-  const header = ['#', 'Timestamp', 'Score', 'Ring', 'X_px', 'Y_px', 'Radius_px', 'Session'];
+  const header = ['#', 'Timestamp', 'Score', 'Ring', 'X_mm', 'Y_mm', 'Radius_mm', 'Session'];
   const rows   = shots.map((s, i) => {
     const x = shotX(s);
     const y = shotY(s);
     const { label }  = scoreShot(x, y);
-    const radius     = s.radius_px ?? radialDeviation(x, y);
+    const radius     = shotRadiusMm(s);
     return [
       shots.length - i,
       fmtFull(s.timestamp),
@@ -79,9 +80,9 @@ async function exportPDF(shots) {
     startY: 47,
     head:   [['Metric', 'Value']],
     body:   [
-      ['CEP (Circular Error Probable)', `${cep.toFixed(2)} px`],
-      ['R50 (Group Centre Radius)',      `${r50.toFixed(2)} px`],
-      ['Group Size (Extreme Spread)',    `${group.toFixed(2)} px`],
+      ['CEP (Circular Error Probable)', `${cep.toFixed(2)} mm`],
+      ['R50 (Group Centre Radius)',      `${r50.toFixed(2)} mm`],
+      ['Group Size (Extreme Spread)',    `${group.toFixed(2)} mm`],
       ['Average Score',                 avg.toFixed(2)],
       ['Total Score',                   String(shots.reduce((s, sh) => s + (sh.score ?? 0), 0))],
     ],
@@ -98,12 +99,12 @@ async function exportPDF(shots) {
 
   auto(doc, {
     startY: startY + 4,
-    head:   [['#', 'Time', 'Score', 'Ring', 'X (px)', 'Y (px)', 'R (px)']],
+    head:   [['#', 'Time', 'Score', 'Ring', 'X (mm)', 'Y (mm)', 'R (mm)']],
     body:   shots.map((s, i) => {
       const x = shotX(s);
       const y = shotY(s);
       const { label } = scoreShot(x, y);
-      const r         = s.radius_px ?? radialDeviation(x, y);
+      const r         = shotRadiusMm(s);
       return [
         shots.length - i,
         fmtFull(s.timestamp),

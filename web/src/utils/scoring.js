@@ -4,6 +4,8 @@
  * Used for instant client-side display before the server confirms.
  */
 
+import { shotOffsetMm } from '@/utils/units';
+
 // Target ring definitions: [maxRadius_mm, score, label, color]
 export const RINGS = [
   [  11.25,  10, '10', '#e8f4ff' ],  // X-ring (innermost)
@@ -21,8 +23,8 @@ export const RINGS = [
 
 export const TARGET_RADIUS_MM = 225; // outermost scoring ring
 
-const pointX = (p) => Number(p?.x_px ?? p?.x_mm ?? p?.x ?? 0);
-const pointY = (p) => Number(p?.y_px ?? p?.y_mm ?? p?.y ?? 0);
+const pointX = (p) => (p?.x_px != null ? shotOffsetMm(p).x : Number(p?.x_mm ?? p?.x ?? 0));
+const pointY = (p) => (p?.y_px != null ? shotOffsetMm(p).y : Number(p?.y_mm ?? p?.y ?? 0));
 
 /**
  * Euclidean distance from target centre (0,0) in millimetres.

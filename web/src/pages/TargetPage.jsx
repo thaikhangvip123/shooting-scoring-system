@@ -7,10 +7,11 @@ import { useState } from 'react';
 import TargetCanvas from '@/components/target/TargetCanvas';
 import TargetTypeSelector from '@/components/target/TargetTypeSelector';
 import { shotTargetType } from '@/utils/targetGeometry';
+import { distancePxToMm, fmtSignedMm, shotOffsetMm } from '@/utils/units';
 
-export default function TargetPage({ shots, latestShot, targetType, onTargetTypeChange }) {
+export default function TargetPage({ shots, targetType, onTargetTypeChange }) {
   const [showMeanPOI, setShowMeanPOI] = useState(true);
-  const [maxShots,    setMaxShots]    = useState(50);
+  const [maxShots, setMaxShots] = useState(50);
 
   const targetShots = shots.filter((shot) => shotTargetType(shot) === targetType);
   const visible = targetShots.slice(0, maxShots);
@@ -18,7 +19,6 @@ export default function TargetPage({ shots, latestShot, targetType, onTargetType
 
   return (
     <div style={{ display: 'flex', gap: 20, height: '100%', minHeight: 0 }}>
-      {/* Target canvas */}
       <div
         className="card"
         style={{
@@ -39,26 +39,25 @@ export default function TargetPage({ shots, latestShot, targetType, onTargetType
         />
       </div>
 
-      {/* Controls panel */}
       <div style={{ width: 220, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div className="card" style={{ padding: 18 }}>
           <div className="card-title" style={{ marginBottom: 14 }}>Display</div>
 
           <TargetTypeSelector value={targetType} onChange={onTargetTypeChange} />
 
-          {/* Shots to show */}
           <label style={{ fontSize: 12, color: 'var(--c-text-2)', display: 'block', marginTop: 16, marginBottom: 4 }}>
             Show last {maxShots} shots
           </label>
           <input
             type="range"
-            min={5} max={200} step={5}
+            min={5}
+            max={200}
+            step={5}
             value={maxShots}
-            onChange={(e) => setMaxShots(Number(e.target.value))}
+            onChange={(event) => setMaxShots(Number(event.target.value))}
             style={{ width: '100%', accentColor: 'var(--c-accent)' }}
           />
 
-          {/* Mean POI toggle */}
           <label
             style={{
               display: 'flex',
@@ -73,14 +72,13 @@ export default function TargetPage({ shots, latestShot, targetType, onTargetType
             <input
               type="checkbox"
               checked={showMeanPOI}
-              onChange={(e) => setShowMeanPOI(e.target.checked)}
+              onChange={(event) => setShowMeanPOI(event.target.checked)}
               style={{ accentColor: 'var(--c-accent)' }}
             />
             Show Mean POI
           </label>
         </div>
 
-        {/* Visible shot count */}
         <div className="card" style={{ padding: 18 }}>
           <div style={{ fontSize: 11, color: 'var(--c-text-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
             Shots on target
@@ -93,26 +91,33 @@ export default function TargetPage({ shots, latestShot, targetType, onTargetType
           </div>
         </div>
 
-        {/* Latest shot details */}
-        {latestTargetShot && (
-          <div className="card" style={{ padding: 18 }}>
-            <div className="card-title" style={{ marginBottom: 10 }}>Latest</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12 }}>
-              {[
-                ['Score',    latestTargetShot.score],
-                ['X',        `${Number(latestTargetShot.x_px ?? latestTargetShot.x_mm ?? 0).toFixed(2)} px`],
-                ['Y',        `${Number(latestTargetShot.y_px ?? latestTargetShot.y_mm ?? 0).toFixed(2)} px`],
-                ['Radius',   latestTargetShot.radius_px != null ? `${Number(latestTargetShot.radius_px).toFixed(2)} px` : '—'],
-              ].map(([k, v]) => (
-                <div key={k} style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--c-text-3)' }}>{k}</span>
-                  <span style={{ color: 'var(--c-text-1)', fontWeight: 500, fontFamily: 'monospace' }}>{v}</span>
-                </div>
-              ))}
+        {latestTargetShot && (() => {
+          const offset = shotOffsetMm(latestTargetShot);
+          const radius = latestTargetShot.radius_px != null
+            ? `${distancePxToMm(latestTargetShot.radius_px).toFixed(2)} mm`
+            : '-';
+
+          return (
+            <div className="card" style={{ padding: 18 }}>
+              <div className="card-title" style={{ marginBottom: 10 }}>Latest</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12 }}>
+                {[
+                  ['Score', latestTargetShot.score],
+                  ['X', fmtSignedMm(offset.x, 2)],
+                  ['Y', fmtSignedMm(offset.y, 2)],
+                  ['Radius', radius],
+                ].map(([key, value]) => (
+                  <div key={key} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--c-text-3)' }}>{key}</span>
+                    <span style={{ color: 'var(--c-text-1)', fontWeight: 500, fontFamily: 'monospace' }}>{value}</span>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
       </div>
     </div>
   );
 }
+

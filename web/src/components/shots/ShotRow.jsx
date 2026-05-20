@@ -3,10 +3,10 @@
  */
 
 import { fmtTime, scoreBadgeClass } from '@/utils/format';
+import { fmtSignedMm, shotOffsetMm } from '@/utils/units';
 
 export default function ShotRow({ shot, isLatest }) {
-  const x = Number(shot.x_px ?? shot.x_mm ?? 0);
-  const y = Number(shot.y_px ?? shot.y_mm ?? 0);
+  const offset = shotOffsetMm(shot);
   const badgeClass = scoreBadgeClass(shot.score);
 
   return (
@@ -28,10 +28,10 @@ export default function ShotRow({ shot, isLatest }) {
         <span className={`badge ${badgeClass}`}>{shot.score}</span>
       </td>
       <td style={{ padding: '7px 12px', fontFamily: 'monospace', color: 'var(--c-text-2)' }}>
-        {x.toFixed(2)} px
+        {fmtSignedMm(offset.x, 2)}
       </td>
       <td style={{ padding: '7px 12px', fontFamily: 'monospace', color: 'var(--c-text-2)' }}>
-        {y.toFixed(2)} px
+        {fmtSignedMm(offset.y, 2)}
       </td>
       <td style={{ padding: '7px 12px', color: 'var(--c-text-3)', fontSize: 11 }}>
         {shot.session_id?.slice(0, 8) ?? '-'}
@@ -39,4 +39,3 @@ export default function ShotRow({ shot, isLatest }) {
     </tr>
   );
 }
-

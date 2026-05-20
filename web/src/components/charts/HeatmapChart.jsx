@@ -101,37 +101,40 @@ export default function HeatmapChart({ shots = [], grid: backendGrid = null, tar
     heatCanvas.width = W;
     heatCanvas.height = H;
     const heatCtx = heatCanvas.getContext('2d');
-    const imgData = heatCtx.createImageData(W, H);
-    const data = imgData.data;
+    heatCtx.globalCompositeOperation = 'lighter';
 
-    for (let row = 0; row < N; row++) {
-      for (let col = 0; col < N; col++) {
-        const t = grid[row][col] / maxVal;
-        if (t === 0) continue;
+    const filtered = shots.filter((shot) => shotTargetType(shot) === targetType);
+    filtered.forEach((shot) => {
+      const point = shotToCanvas(shot, targetType);
+      const col = Math.floor(point.x / cw);
+      const row = Math.floor(point.y / ch);
+      const density = row >= 0 && row < N && col >= 0 && col < N ? grid[row][col] / maxVal : 1;
+      const [r, g, b] = heatColor(Math.max(0.35, density));
+      const radius = 32 + Math.min(22, density * 18);
+      const gradient = heatCtx.createRadialGradient(point.x, point.y, 0, point.x, point.y, radius);
+      gradient.addColorStop(0, `rgba(255,255,210,${0.55 + density * 0.25})`);
+      gradient.addColorStop(0.25, `rgba(${r},${g},${b},${0.32 + density * 0.22})`);
+      gradient.addColorStop(0.62, `rgba(${r},${g},${b},${0.12 + density * 0.12})`);
+      gradient.addColorStop(1, `rgba(${r},${g},${b},0)`);
 
-        const [r, g, b, a] = heatColor(t);
-        const x0 = Math.floor(col * cw);
-        const y0 = Math.floor(row * ch);
-        const x1 = Math.floor((col + 1) * cw);
-        const y1 = Math.floor((row + 1) * ch);
+      heatCtx.fillStyle = gradient;
+      heatCtx.beginPath();
+      heatCtx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+      heatCtx.fill();
+    });
 
-        for (let py = y0; py < y1; py++) {
-          for (let px = x0; px < x1; px++) {
-            const idx = (py * W + px) * 4;
-            data[idx] = r;
-            data[idx + 1] = g;
-            data[idx + 2] = b;
-            data[idx + 3] = a;
-          }
-        }
-      }
-    }
-
-    heatCtx.putImageData(imgData, 0, 0);
-    ctx.filter = 'blur(4px)';
+    ctx.filter = 'blur(7px)';
     ctx.drawImage(heatCanvas, 0, 0);
     ctx.filter = 'none';
-  }, [grid, targetType]);
+
+    filtered.forEach((shot) => {
+      const point = shotToCanvas(shot, targetType);
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, 2.4, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.75)';
+      ctx.fill();
+    });
+  }, [grid, shots, targetType]);
 
   return (
     <div style={{ padding: 16 }}>

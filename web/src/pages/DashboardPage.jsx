@@ -9,6 +9,7 @@ import StatsPanel      from '@/components/stats/StatsPanel';
 import ScoreHistogram  from '@/components/charts/ScoreHistogram';
 import { fmtRelative } from '@/utils/format';
 import { scoreTargetShot, shotTargetType } from '@/utils/targetGeometry';
+import { fmtSignedMm, shotOffsetMm } from '@/utils/units';
 import { useEffect, useState } from 'react';
 
 export default function DashboardPage({
@@ -28,6 +29,7 @@ export default function DashboardPage({
   const { color, label } = latestTargetShot
     ? scoreTargetShot(latestTargetShot, targetType)
     : {};
+  const latestOffsetMm = latestTargetShot ? shotOffsetMm(latestTargetShot) : null;
 
   useEffect(() => {
     if (session?.shots_per_session) {
@@ -70,8 +72,8 @@ export default function DashboardPage({
                   {label}
                 </span>
                 <div style={{ marginLeft: 'auto', textAlign: 'right', fontSize: 12, color: 'var(--c-text-2)' }}>
-                  <div>X: <b>{Number(latestTargetShot.x_px ?? latestTargetShot.x_mm ?? 0).toFixed(1)} px</b></div>
-                  <div>Y: <b>{Number(latestTargetShot.y_px ?? latestTargetShot.y_mm ?? 0).toFixed(1)} px</b></div>
+                  <div>X: <b>{fmtSignedMm(latestOffsetMm.x, 1)}</b></div>
+                  <div>Y: <b>{fmtSignedMm(latestOffsetMm.y, 1)}</b></div>
                 </div>
               </div>
             </>
@@ -146,8 +148,8 @@ export default function DashboardPage({
 
       {/* ── Right column: Stats + histogram ─────────────────────────── */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
-        <StatsPanel shots={visibleShots} stats={stats} />
-        <ScoreHistogram shots={visibleShots} />
+        <StatsPanel shots={targetShots} stats={stats} />
+        <ScoreHistogram shots={targetShots} />
 
         {/* Recent shots mini-list */}
         <div className="card" style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
@@ -158,6 +160,7 @@ export default function DashboardPage({
           <div style={{ overflowY: 'auto', maxHeight: 220 }}>
             {shots.slice(0, 10).map((s, i) => {
               const { color: sc, label: sl } = scoreTargetShot(s, shotTargetType(s));
+              const offset = shotOffsetMm(s);
               return (
                 <div
                   key={s.id}
@@ -178,7 +181,7 @@ export default function DashboardPage({
                   </span>
                   <span style={{ fontSize: 11, color: sc, opacity: 0.7, width: 18 }}>{sl}</span>
                   <span style={{ fontSize: 11, color: 'var(--c-text-3)', fontFamily: 'monospace' }}>
-                    ({Number(s.x_px ?? s.x_mm ?? 0).toFixed(1)}, {Number(s.y_px ?? s.y_mm ?? 0).toFixed(1)})
+                    ({fmtSignedMm(offset.x, 1)}, {fmtSignedMm(offset.y, 1)})
                   </span>
                   <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--c-text-3)' }}>
                     {new Date(s.timestamp).toLocaleTimeString()}
