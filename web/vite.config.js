@@ -2,6 +2,11 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
+const quietProxyAbort = (err) => {
+  if (['ECONNRESET', 'ECONNABORTED', 'EPIPE'].includes(err?.code)) return;
+  console.warn('[vite proxy]', err?.message ?? err);
+};
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -17,13 +22,20 @@ export default defineConfig({
     },
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        target: 'http://127.0.0.1:8000',
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api/, ''),
+        configure: (proxy) => {
+          proxy.on('error', quietProxyAbort);
+        },
       },
       '/ws': {
-        target: 'ws://localhost:8000',
+        target: 'ws://127.0.0.1:8000',
         ws: true,
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('error', quietProxyAbort);
+        },
       },
     },
   },

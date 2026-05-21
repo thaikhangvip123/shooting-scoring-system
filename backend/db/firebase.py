@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 
 from backend.config import get_settings
@@ -80,26 +81,33 @@ class FirebaseStore:
         self._db = firestore.client()
         self._col = self._db.collection(self.COLLECTION)
 
+    @staticmethod
+    def _shot_from_doc(doc) -> ShotRecord:
+        data = doc.to_dict() or {}
+        data.setdefault("shot_id", doc.id)
+        data.setdefault("timestamp", getattr(doc, "create_time", None))
+        return ShotRecord.from_dict(data)
+
+    @staticmethod
+    def _created_at(doc) -> datetime:
+        return getattr(doc, "create_time", None) or datetime.min.replace(tzinfo=timezone.utc)
+
     async def add_shot(self, shot: ShotRecord) -> None:
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, lambda: self._col.document(shot.id).set(shot.to_dict()))
+        await loop.run_in_executor(None, lambda: self._col.document(shot.id).set(shot.to_storage_dict()))
 
     async def get_latest(self) -> Optional[ShotRecord]:
         loop = asyncio.get_event_loop()
 
         def _fetch():
-            docs = (
-                self._col
-                .order_by("timestamp", direction="DESCENDING")
-                .limit(1)
-                .stream()
-            )
-            return list(docs)
+            docs = list(self._col.stream())
+            docs.sort(key=self._created_at, reverse=True)
+            return docs[:1]
 
         docs = await loop.run_in_executor(None, _fetch)
         if not docs:
             return None
-        return ShotRecord.from_dict(docs[0].to_dict())
+        return self._shot_from_doc(docs[0])
 
     async def get_history(
         self,
@@ -110,21 +118,19 @@ class FirebaseStore:
         loop = asyncio.get_event_loop()
 
         def _fetch():
-            q = self._col.order_by("timestamp", direction="DESCENDING")
+            docs = list(self._col.stream())
+            docs.sort(key=self._created_at, reverse=True)
             if session_id:
-                docs = list(q.limit(10_000).stream())
                 records = [
-                    ShotRecord.from_dict(d.to_dict())
+                    self._shot_from_doc(d)
                     for d in docs
                     if d.to_dict().get("session_id") == session_id
                 ]
                 total = len(records)
                 return records[offset : offset + limit], total
-            # Firestore offset is approximate; use for pagination
-            if offset:
-                q = q.offset(offset)
-            docs = list(q.limit(limit).stream())
-            return [ShotRecord.from_dict(d.to_dict()) for d in docs], len(docs) + offset
+            total = len(docs)
+            page = docs[offset : offset + limit]
+            return [self._shot_from_doc(d) for d in page], total
 
         return await loop.run_in_executor(None, _fetch)
 

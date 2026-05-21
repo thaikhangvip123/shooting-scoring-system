@@ -101,8 +101,19 @@ class ShotRecord(BaseModel):
         d["timestamp"] = self.timestamp.isoformat()
         return d
 
+    def to_storage_dict(self) -> dict:
+        metadata = self.metadata or {}
+        return {
+            "shot_id": self.id,
+            "score": self.score,
+            "session_id": self.session_id,
+            "target_type": str(metadata.get("target_type", "TRON")).upper(),
+        }
+
     @classmethod
     def from_dict(cls, data: dict) -> ShotRecord:
+        if "id" not in data and "shot_id" in data:
+            data["id"] = data["shot_id"]
         if isinstance(data.get("timestamp"), str):
             data["timestamp"] = datetime.fromisoformat(data["timestamp"])
         if "x_px" not in data and "x_mm" in data:
@@ -111,4 +122,11 @@ class ShotRecord(BaseModel):
             data["y_px"] = data.pop("y_mm")
         if "radius_px" not in data and "radius_mm" in data:
             data["radius_px"] = data.pop("radius_mm")
+        if "metadata" not in data and "target_type" in data:
+            data["metadata"] = {"target_type": data["target_type"]}
+        data.setdefault("x_px", 0.0)
+        data.setdefault("y_px", 0.0)
+        data.setdefault("ring", str(data.get("score", "")))
+        if data.get("timestamp") is None:
+            data["timestamp"] = datetime.now(timezone.utc)
         return cls(**data)

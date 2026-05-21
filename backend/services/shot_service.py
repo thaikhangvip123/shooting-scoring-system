@@ -134,6 +134,10 @@ def compute_score(target_type: str, x_px: float, y_px: float) -> tuple[int, str,
     return compute_score_tron(x_px, y_px)
 
 
+def make_shot_id(session_id: str, shot_index: int) -> str:
+    return f"{session_id}-shot-{shot_index:02d}"
+
+
 class DuplicateGuard:
     """Simple in-process duplicate guard using pixel distance."""
 
@@ -202,7 +206,9 @@ async def register_shot(payload: ShotCreate) -> ShotResponse:
     eval_meta["backend_received_at_ms"] = received_at_ms
     metadata["eval"] = eval_meta
 
+    shot_id = make_shot_id(session_id, shot_index)
     record = ShotRecord(
+        id=shot_id,
         x_px=payload.x_px,
         y_px=payload.y_px,
         radius_px=round(radius, 4) if radius is not None else None,

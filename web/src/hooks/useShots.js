@@ -39,6 +39,7 @@ export function useShots() {
   const backoffRef = useRef(INITIAL_BACKOFF);
   const retryTimer = useRef(null);
   const mounted    = useRef(true);
+  const wsGeneration = useRef(0);
 
   const fetchHistory = useCallback(async () => {
     try {
@@ -69,11 +70,17 @@ export function useShots() {
 
   const connect = useCallback(() => {
     if (!mounted.current) return;
+    clearTimeout(retryTimer.current);
+    wsGeneration.current += 1;
+    const generation = wsGeneration.current;
+    if (wsRef.current && wsRef.current.readyState !== WebSocket.CLOSED) {
+      wsRef.current.close(1000, 'reconnect');
+    }
     setWsStatus('connecting');
 
     const ws = openShotsSocket(
       (shot) => {
-        if (!mounted.current) return;
+        if (!mounted.current || generation !== wsGeneration.current) return;
         backoffRef.current = INITIAL_BACKOFF;
         setShots((prev) => {
           const next = dedupeById([shot, ...prev]);
@@ -83,10 +90,10 @@ export function useShots() {
         setWsStatus('open');
       },
       () => {
-        if (mounted.current) setWsStatus('error');
+        if (mounted.current && generation === wsGeneration.current) setWsStatus('error');
       },
       (message) => {
-        if (!mounted.current) return;
+        if (!mounted.current || generation !== wsGeneration.current) return;
         if (message.type === 'session_reset' && message.session_id) {
           setShots((prev) => prev.filter((shot) => shot.session_id !== message.session_id));
         }
@@ -99,10 +106,10 @@ export function useShots() {
     );
 
     ws.addEventListener('open', () => {
-      if (mounted.current) setWsStatus('open');
+      if (mounted.current && generation === wsGeneration.current) setWsStatus('open');
     });
     ws.addEventListener('close', () => {
-      if (!mounted.current) return;
+      if (!mounted.current || generation !== wsGeneration.current || wsRef.current !== ws) return;
       setWsStatus('closed');
       retryTimer.current = setTimeout(() => {
         backoffRef.current = Math.min(backoffRef.current * 2, MAX_BACKOFF);
@@ -141,6 +148,7 @@ export function useShots() {
 
     return () => {
       mounted.current = false;
+      wsGeneration.current += 1;
       clearTimeout(retryTimer.current);
       wsRef.current?.close();
     };
@@ -157,4 +165,3 @@ export function useShots() {
     setShotsPerSession,
   };
 }
-
