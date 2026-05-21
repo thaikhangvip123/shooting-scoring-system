@@ -1,30 +1,60 @@
+from pathlib import Path
+
 import numpy as np
 
-# --- THAY ĐỔI BASE_DIR THÀNH ĐƯỜNG DẪN CỦA BẠN ---
-BASE_DIR = "E:/shooting-scoring-system/cv" 
 
-VIDEO_PATH = f"{BASE_DIR}/Videos/target2.mp4"
+BASE_DIR = Path(__file__).resolve().parents[1]
 
-PATH_IPSC_POLY = f"{BASE_DIR}/Scoring/IPSC/polygon.txt"
-PATH_NGUOI_CONT = f"{BASE_DIR}/Scoring/Nguoi/Nguoi_contours.txt"
+VIDEO_PATH = str(BASE_DIR / "Videos" / "target2.mp4")
+CV2_NUM_THREADS = 1
 
-# Kích thước và Tọa độ
+PATH_IPSC_POLY = str(BASE_DIR / "Scoring" / "IPSC" / "polygon.txt")
+PATH_NGUOI_CONT = str(BASE_DIR / "Scoring" / "Nguoi" / "Nguoi_contours.txt")
+
 WIDTH, HEIGHT = 1240, 1754
 SCALE_FACTOR = 2480 / WIDTH
 MARGIN = 40
-EXPECTED_RADIUS = 21  
+EXPECTED_RADIUS = 21.4
 
 dst_points = np.array([
-    [MARGIN, MARGIN], 
-    [WIDTH - MARGIN, MARGIN], 
-    [WIDTH - MARGIN, HEIGHT - MARGIN], 
-    [MARGIN, HEIGHT - MARGIN]
+    [MARGIN, MARGIN],
+    [WIDTH - MARGIN, MARGIN],
+    [WIDTH - MARGIN, HEIGHT - MARGIN],
+    [MARGIN, HEIGHT - MARGIN],
 ], dtype=np.float32)
 
-# --- THÔNG SỐ TỐI ƯU MỚI ---
-CIRCULARITY_THRESH = 0.6  # Chuẩn độ tròn mới (Bỏ qua overlap)
-CONFIRM_FRAMES = 6         # Số frame liên tiếp để xác nhận đạn
-STALE_FRAMES = 10          # Frame chờ trước khi xóa candidate
-FORGET_FRAMES = 15         # Frame chờ trước khi xóa confirmed
-MATCH_DIST = 20            # Bán kính tìm kiếm ghép cặp (Hungarian)
-BG_ALPHA = 0.05            # Tốc độ học nền mới (Rolling BG)
+CIRCULARITY_THRESH = 0.5
+CONFIRM_FRAMES = 5
+STALE_FRAMES = 20
+FORGET_FRAMES = 999999
+MATCH_DIST = 15
+CONFIRMED_SMOOTH_FRAMES = 3
+BG_ALPHA = 0.05
+
+CONFIRMED_DUPLICATE_DIST = EXPECTED_RADIUS * 1
+CONFIRMED_STRICT_DUPLICATE_DIST = EXPECTED_RADIUS * 0.85
+SEQUENTIAL_DIFF_THRESH = 14
+SEQUENTIAL_MIN_AREA = 120
+SEQUENTIAL_DILATE_RADIUS = int(EXPECTED_RADIUS * 1.2)
+NEW_EVIDENCE_DUPLICATE_MIN_AREA = 180
+
+HOUGH_DP = 1.0
+HOUGH_MIN_DIST_FACTOR = 0.85
+HOUGH_PARAM1 = 50
+HOUGH_PARAM2 = 16
+HOUGH_MIN_RADIUS_FACTOR = 0.6
+HOUGH_MAX_RADIUS_FACTOR = 1.4
+
+RANSAC_MIN_CONTOUR_POINTS = 6
+RANSAC_ITERATIONS = 120
+RANSAC_HOUGH_REMOVE_THRESH = 5.0
+RANSAC_INLIER_THRESH = 7
+RANSAC_MIN_INLIERS = 6
+RANSAC_MIN_AVAILABLE_POINTS = 6
+NMS_MIN_DIST_FACTOR = 0.75
+
+CIRCLE_CENTER_OUTSIDE_TOLERANCE_FACTOR = 0.45
+CIRCLE_MIN_MASK_SUPPORT_RATIO = 0.18
+
+ARUCO_DETECT_EVERY_N_FRAMES = 2
+CONFIRMED_MASK_RADIUS_FACTOR = 1.0

@@ -7,6 +7,7 @@ import cv2
 import cv2.aruco as aruco
 import numpy as np
 
+from config import ARUCO_DETECT_EVERY_N_FRAMES, CV2_NUM_THREADS
 from evaluation import create_detection_recorder_from_env
 from state import app_bg_state, app_tracked_state
 from worker import target_worker_thread
@@ -262,6 +263,8 @@ def replace_queue_item(q, item):
 
 def main():
     args = parse_args()
+    cv2.setNumThreads(CV2_NUM_THREADS)
+
     aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
     detector = aruco.ArucoDetector(aruco_dict, aruco.DetectorParameters())
     recorder = create_detection_recorder_from_env()
@@ -285,6 +288,7 @@ def main():
 
     frame_idx = 0
     prev_time = 0
+    last_marker_dict = None
     print(f"\nDang nhan tu: {source.source_label}")
     print("Nhan Q de thoat.")
 
@@ -302,13 +306,16 @@ def main():
             prev_time = curr_time
 
             cv2.putText(frame, f"FPS: {int(fps)}", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3)
-            corners, ids, _ = detect_aruco(detector, frame, args.detect_scale)
+            if frame_idx % ARUCO_DETECT_EVERY_N_FRAMES == 0:
+                corners, ids, _ = detect_aruco(detector, frame, args.detect_scale)
+                if ids is not None:
+                    last_marker_dict = {ids[i][0]: corners[i][0] for i in range(len(ids))}
 
             if not args.no_preview:
                 cv2.imshow(MAIN_WINDOW_NAME, frame)
 
-            if ids is not None:
-                marker_dict = {ids[i][0]: corners[i][0] for i in range(len(ids))}
+            if last_marker_dict is not None:
+                marker_dict = last_marker_dict
                 for target_name, id_set in TARGET_SETS.items():
                     if all(marker_id in marker_dict for marker_id in id_set):
                         top_left, top_right, bottom_left, bottom_right = id_set

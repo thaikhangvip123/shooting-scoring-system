@@ -1,13 +1,56 @@
 import numpy as np
 import math
+import cv2
 from scipy.optimize import linear_sum_assignment
 from config import *
 
-def tracking_hungarian(state, raw_circles, frame_idx):
-    # Gộp tất cả id đang theo dõi (cả candidates và confirmed)
+
+def has_new_evidence(raw_circle, new_evidence_mask):
+    if new_evidence_mask is None:
+        return False
+
+    nx, ny, r = raw_circle
+    probe_radius = max(3, int(r * 0.55))
+    x1 = max(0, int(nx) - probe_radius)
+    y1 = max(0, int(ny) - probe_radius)
+    x2 = min(new_evidence_mask.shape[1], int(nx) + probe_radius + 1)
+    y2 = min(new_evidence_mask.shape[0], int(ny) + probe_radius + 1)
+
+    if x1 >= x2 or y1 >= y2:
+        return False
+
+    roi = new_evidence_mask[y1:y2, x1:x2]
+    probe = np.zeros(roi.shape, dtype=np.uint8)
+    cv2.circle(probe, (int(nx) - x1, int(ny) - y1), probe_radius, 255, -1)
+    evidence_area = cv2.countNonZero(cv2.bitwise_and(roi, probe))
+    return evidence_area >= NEW_EVIDENCE_DUPLICATE_MIN_AREA
+
+
+def is_duplicate_confirmed(raw_circle, confirmed_items, new_evidence_mask=None):
+    nx, ny, _ = raw_circle
+    for data in confirmed_items.values():
+        ox, oy = data["pos"]
+        dist = math.sqrt((nx - ox)**2 + (ny - oy)**2)
+        if dist < CONFIRMED_STRICT_DUPLICATE_DIST:
+            return True
+        if dist < CONFIRMED_DUPLICATE_DIST:
+            if has_new_evidence(raw_circle, new_evidence_mask):
+                continue
+            return True
+    return False
+
+
+def tracking_hungarian(state, raw_circles, frame_idx, new_evidence_mask=None):
+    # Match candidates normally. Confirmed bullets only stay matchable for a
+    # short smoothing window, then their position is frozen.
     tracked_items = {}
-    for cid, data in state["candidates"].items(): tracked_items[cid] = data
-    for cid, data in state["confirmed"].items(): tracked_items[cid] = data
+    for cid, data in state["candidates"].items():
+        tracked_items[cid] = data
+    for cid, data in state["confirmed"].items():
+        confirmed_frame = data.get("confirmed_frame", frame_idx)
+        confirmed_age = frame_idx - confirmed_frame
+        if confirmed_age <= CONFIRMED_SMOOTH_FRAMES:
+            tracked_items[cid] = data
     
     tracked_ids = list(tracked_items.keys())
     
@@ -45,13 +88,20 @@ def tracking_hungarian(state, raw_circles, frame_idx):
             state["candidates"][tid]["count"] += 1
             if state["candidates"][tid]["count"] >= CONFIRM_FRAMES:
                 state["confirmed"][tid] = state["candidates"].pop(tid)
+                state["confirmed"][tid]["confirmed_frame"] = frame_idx
         elif tid in state["confirmed"]:
-            ox, oy = state["confirmed"][tid]["pos"]
-            state["confirmed"][tid]["pos"] = (ox*0.8 + nx*0.2, oy*0.8 + ny*0.2) # Alpha mượt
-            state["confirmed"][tid]["last_frame"] = frame_idx
+            confirmed_frame = state["confirmed"][tid].get("confirmed_frame", frame_idx)
+            confirmed_age = frame_idx - confirmed_frame
+            if confirmed_age <= CONFIRMED_SMOOTH_FRAMES:
+                ox, oy = state["confirmed"][tid]["pos"]
+                state["confirmed"][tid]["pos"] = (ox*0.8 + nx*0.2, oy*0.8 + ny*0.2) # Alpha mượt
+                state["confirmed"][tid]["last_frame"] = frame_idx
 
     # 2. Tạo ID mới cho các viên đạn không ghép được (Đạn dính chùm mới)
     for raw_idx in unmatched_raw:
+        if is_duplicate_confirmed(raw_circles[raw_idx], state["confirmed"], new_evidence_mask):
+            continue
+
         nx, ny, r = raw_circles[raw_idx]
         new_id = state["next_id"]; state["next_id"] += 1
         state["candidates"][new_id] = {"pos": (nx, ny), "r": r, "count": 1, "last_frame": frame_idx}
