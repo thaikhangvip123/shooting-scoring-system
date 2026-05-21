@@ -3,13 +3,13 @@ menu "Shooting Score ESP32 Config"
     menu "WiFi Settings"
         config SHOOT_WIFI_SSID
             string "WiFi SSID"
-            default "MyAccessPoint"
+            default "iphoneK"
             help
                 SSID (network name) of the AP to connect to.
 
         config SHOOT_WIFI_PASSWORD
             string "WiFi Password"
-            default "mypassword"
+            default "0987654321"
             help
                 WPA2 password for the AP. Leave empty for open networks.
 
@@ -23,7 +23,7 @@ menu "Shooting Score ESP32 Config"
     menu "Backend API"
         config SHOOT_BACKEND_HOST
             string "Backend host (IP or hostname)"
-            default "192.168.1.100"
+            default "172.20.10.7"
             help
                 IP address or hostname of the FastAPI server.
                 Do NOT include http:// or port.

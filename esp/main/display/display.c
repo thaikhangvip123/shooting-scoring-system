@@ -45,10 +45,10 @@ static const char *TAG = "display";
 
 #define LCD_H_RES            240
 #define LCD_V_RES            320
-#define LCD_PIXEL_CLOCK_HZ   (20 * 1000 * 1000)
+#define LCD_PIXEL_CLOCK_HZ   (10 * 1000 * 1000)
 #define LCD_CMD_BITS         8
 #define LCD_PARAM_BITS       8
-#define LVGL_DRAW_BUF_LINES  (LCD_V_RES / 2)   // double-buffer half the screen
+#define LVGL_DRAW_BUF_LINES  40
 
 // ── Module statics ────────────────────────────────────────────────────────────
 static esp_lcd_panel_io_handle_t  s_io_handle  = NULL;
@@ -90,13 +90,16 @@ static void lvgl_tick_cb(void *arg)
 static void lvgl_task(void *arg)
 {
     ESP_LOGI(TAG, "LVGL task started on core %d", xPortGetCoreID());
+    const TickType_t handler_delay = pdMS_TO_TICKS(10) > 0 ? pdMS_TO_TICKS(10) : 1;
+    const TickType_t lock_timeout = pdMS_TO_TICKS(20) > 0 ? pdMS_TO_TICKS(20) : 1;
+
     while (1) {
         // Give other tasks a chance to take the mutex between iterations.
-        if (xSemaphoreTake(s_lvgl_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        if (xSemaphoreTake(s_lvgl_mutex, lock_timeout) == pdTRUE) {
             lv_timer_handler();
             xSemaphoreGive(s_lvgl_mutex);
         }
-        vTaskDelay(pdMS_TO_TICKS(5));
+        vTaskDelay(handler_delay);
     }
 }
 
