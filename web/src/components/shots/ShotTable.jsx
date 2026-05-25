@@ -6,6 +6,7 @@
 import { useState, useMemo } from 'react';
 import ShotRow from './ShotRow';
 import { shotOffsetMm } from '@/utils/units';
+import { sessionLabelFromShot, sessionNumberFromShot } from '@/utils/session';
 
 const COLUMNS = [
   { key: 'index',     label: '#',        width: 44  },
@@ -16,7 +17,7 @@ const COLUMNS = [
   { key: 'session',   label: 'Session',  width: 90  },
 ];
 
-export default function ShotTable({ shots = [], latestId = null }) {
+export default function ShotTable({ shots = [], latestId = null, title = 'Shot Log', emptyMessage = 'No shots recorded yet' }) {
   const [sortKey, setSortKey]   = useState('index');
   const [sortDir, setSortDir]   = useState('desc');
   const [filter,  setFilter]    = useState('');
@@ -32,6 +33,8 @@ export default function ShotTable({ shots = [], latestId = null }) {
       index:  shots.length - i,
       x_mm: shotOffsetMm(s).x,
       y_mm: shotOffsetMm(s).y,
+      session: sessionNumberFromShot(s) ?? sessionLabelFromShot(s),
+      session_label: sessionLabelFromShot(s),
     }));
 
     if (filter.trim()) {
@@ -39,7 +42,8 @@ export default function ShotTable({ shots = [], latestId = null }) {
       rows = rows.filter(
         (r) =>
           String(r.score).includes(q) ||
-          String(r.session_id ?? '').toLowerCase().includes(q)
+          String(r.session_id ?? '').toLowerCase().includes(q) ||
+          String(r.session_label ?? '').toLowerCase().includes(q)
       );
     }
 
@@ -62,7 +66,7 @@ export default function ShotTable({ shots = [], latestId = null }) {
     <div className="card" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       {/* Header */}
       <div className="card-header">
-        <span className="card-title">Shot Log</span>
+        <span className="card-title">{title}</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <input
             type="text"
@@ -122,7 +126,7 @@ export default function ShotTable({ shots = [], latestId = null }) {
                   colSpan={COLUMNS.length}
                   style={{ textAlign: 'center', padding: 40, color: 'var(--c-text-3)', fontSize: 13 }}
                 >
-                  No shots recorded yet
+                  {emptyMessage}
                 </td>
               </tr>
             ) : (

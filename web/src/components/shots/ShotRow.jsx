@@ -4,6 +4,7 @@
 
 import { fmtTime, scoreBadgeClass } from '@/utils/format';
 import { fmtSignedMm, shotOffsetMm } from '@/utils/units';
+import { sessionLabelFromShot } from '@/utils/session';
 
 export default function ShotRow({ shot, isLatest }) {
   const offset = shotOffsetMm(shot);
@@ -33,8 +34,8 @@ export default function ShotRow({ shot, isLatest }) {
       <td style={{ padding: '7px 12px', fontFamily: 'monospace', color: 'var(--c-text-2)' }}>
         {fmtSignedMm(offset.y, 2)}
       </td>
-      <td style={{ padding: '7px 12px', color: 'var(--c-text-3)', fontSize: 11 }}>
-        {shot.session_id?.slice(0, 8) ?? '-'}
+      <td style={{ padding: '7px 12px', color: 'var(--c-text-3)', fontSize: 11, whiteSpace: 'nowrap' }}>
+        {sessionLabelFromShot(shot)}
       </td>
     </tr>
   );
