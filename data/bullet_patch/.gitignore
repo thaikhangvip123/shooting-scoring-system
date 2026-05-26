@@ -1,0 +1,13 @@
+raw/*
+labeled/bullet/*
+labeled/not_bullet/*
+train/bullet/*
+train/not_bullet/*
+val/bullet/*
+val/not_bullet/*
+test/bullet/*
+test/not_bullet/*
+!*/.gitkeep
+!*/*/.gitkeep
+!README.md
+!.gitignore

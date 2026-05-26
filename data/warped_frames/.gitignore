@@ -1,0 +1,6 @@
+bullet/*
+not_bullet/*
+
+!*/.gitkeep
+!*/*/.gitkeep
+!.gitignore
