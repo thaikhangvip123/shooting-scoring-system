@@ -28,3 +28,9 @@ STALE_FRAMES = 10          # Frame chờ trước khi xóa candidate
 FORGET_FRAMES = 15         # Frame chờ trước khi xóa confirmed
 MATCH_DIST = 20            # Bán kính tìm kiếm ghép cặp (Hungarian)
 BG_ALPHA = 0.05            # Tốc độ học nền mới (Rolling BG)
+
+# CNN candidate classifier
+USE_CNN_CLASSIFIER = True
+CNN_MODEL_PATH = ""  # Empty means cv/DetectBullets/models/mobilenetv3_bullet.pt
+CNN_TRAINING_WIDTH = 1240
+CNN_CROP_SCALE = WIDTH / CNN_TRAINING_WIDTH
