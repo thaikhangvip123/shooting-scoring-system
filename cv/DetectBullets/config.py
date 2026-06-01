@@ -1,36 +1,103 @@
 import numpy as np
 
-# --- THAY ĐỔI BASE_DIR THÀNH ĐƯỜNG DẪN CỦA BẠN ---
-BASE_DIR = "E:/shooting-scoring-system/cv" 
-
-VIDEO_PATH = f"{BASE_DIR}/Videos/target2.mp4"
+# Paths
+BASE_DIR = "D:/baitapxaml/HK252/DATN/Main/shooting-scoring-system/cv"
+VIDEO_PATH = f"{BASE_DIR}/Videos/target5.mp4"
+CV2_NUM_THREADS = 1
 
 PATH_IPSC_POLY = f"{BASE_DIR}/Scoring/IPSC/polygon.txt"
 PATH_NGUOI_CONT = f"{BASE_DIR}/Scoring/Nguoi/Nguoi_contours.txt"
 
-# Kích thước và Tọa độ
-WIDTH, HEIGHT = 1240, 1754
+# Geometry. BASE_* is the original 1240x1754 tuning space. WIDTH/HEIGHT is the
+# faster 620x877 runtime space. Scoring is still mapped back to 2480-wide assets.
+BASE_WIDTH, BASE_HEIGHT = 1240, 1754
+WIDTH, HEIGHT = 620, 877
+RES_SCALE = WIDTH / BASE_WIDTH
+AREA_SCALE = RES_SCALE ** 2
 SCALE_FACTOR = 2480 / WIDTH
-MARGIN = 40
-EXPECTED_RADIUS = 21  
+MARGIN = int(40 * RES_SCALE)
+EXPECTED_RADIUS = 21.4 * RES_SCALE
 
 dst_points = np.array([
-    [MARGIN, MARGIN], 
-    [WIDTH - MARGIN, MARGIN], 
-    [WIDTH - MARGIN, HEIGHT - MARGIN], 
-    [MARGIN, HEIGHT - MARGIN]
+    [MARGIN, MARGIN],
+    [WIDTH - MARGIN, MARGIN],
+    [WIDTH - MARGIN, HEIGHT - MARGIN],
+    [MARGIN, HEIGHT - MARGIN],
 ], dtype=np.float32)
 
-# --- THÔNG SỐ TỐI ƯU MỚI ---
-CIRCULARITY_THRESH = 0.6  # Chuẩn độ tròn mới (Bỏ qua overlap)
-CONFIRM_FRAMES = 6         # Số frame liên tiếp để xác nhận đạn
-STALE_FRAMES = 10          # Frame chờ trước khi xóa candidate
-FORGET_FRAMES = 15         # Frame chờ trước khi xóa confirmed
-MATCH_DIST = 20            # Bán kính tìm kiếm ghép cặp (Hungarian)
-BG_ALPHA = 0.05            # Tốc độ học nền mới (Rolling BG)
+# Candidate and tracking lifecycle
+CIRCULARITY_THRESH = 0.5
+CONFIRM_FRAMES = 6
+STALE_FRAMES = 20
+FORGET_FRAMES = 999999
+MATCH_DIST = max(8, int(15 * RES_SCALE))
+CONFIRMED_SMOOTH_FRAMES = 3
+BG_ALPHA = 0.05
 
-# CNN candidate classifier
+CONFIRMED_DUPLICATE_DIST = EXPECTED_RADIUS * 1
+CONFIRMED_STRICT_DUPLICATE_DIST = EXPECTED_RADIUS * 0.85
+
+# Layer 1 / sequential evidence scaled from the old 1240x1754 tuning.
+LAYER1_MARKER_MASK_RADIUS = int(350 * RES_SCALE)
+LAYER1_OPEN_KERNEL = (max(3, int(9 * RES_SCALE) | 1), max(3, int(9 * RES_SCALE) | 1))
+LAYER1_CLOSE_KERNEL = (max(5, int(21 * RES_SCALE) | 1), max(5, int(21 * RES_SCALE) | 1))
+LAYER1_MIN_AREA = max(125, int(500 * AREA_SCALE))
+LAYER1_CLUSTER_MIN_AREA = max(100, int(400 * AREA_SCALE))
+
+SEQUENTIAL_DIFF_THRESH = 14
+SEQUENTIAL_MIN_AREA = max(30, int(120 * AREA_SCALE))
+SEQUENTIAL_DILATE_RADIUS = int(EXPECTED_RADIUS * 1.2)
+NEW_EVIDENCE_DUPLICATE_MIN_AREA = max(45, int(180 * AREA_SCALE))
+
+# Hough tuning
+HOUGH_DP = 1.0
+HOUGH_MIN_DIST_FACTOR = 0.85
+HOUGH_PARAM1 = 50
+HOUGH_PARAM2 = 16
+HOUGH_MIN_RADIUS_FACTOR = 0.6
+HOUGH_MAX_RADIUS_FACTOR = 1.4
+
+# RANSAC tuning. Distance tolerances scale with image size; point-count
+# thresholds remain counts, not pixel measurements.
+RANSAC_MIN_CONTOUR_POINTS = 6
+RANSAC_ITERATIONS = 120
+RANSAC_HOUGH_REMOVE_THRESH = 5.0 * RES_SCALE
+RANSAC_INLIER_THRESH = 7 * RES_SCALE
+RANSAC_MIN_INLIERS = 6
+RANSAC_MIN_AVAILABLE_POINTS = 6
+NMS_MIN_DIST_FACTOR = 0.75
+
+CIRCLE_CENTER_OUTSIDE_TOLERANCE_FACTOR = 0.45
+CIRCLE_MIN_MASK_SUPPORT_RATIO = 0.18
+
+ARUCO_DETECT_EVERY_N_FRAMES = 2
+CONFIRMED_MASK_RADIUS_FACTOR = 1.0
+
+# MOG2 Layer 1 experiment
+USE_MOG2_LAYER1 = True
+MOG2_HISTORY = 500
+MOG2_VAR_THRESHOLD = 25
+MOG2_DETECT_SHADOWS = True
+MOG2_WARMUP_FRAMES = 30
+MOG2_DARK_DIFF_THRESH = 12
+MOG2_FOREGROUND_THRESH = 200
+MOG2_OPEN_KERNEL = (3, 3)
+MOG2_CLOSE_KERNEL = (5, 5)
+MOG2_MIN_AREA = 3
+MOG2_MAX_AREA = max(500, int(2000 * AREA_SCALE))
+MOG2_EXPAND_TO_EXPECTED_RADIUS = True
+MOG2_EXPAND_RADIUS_FACTOR = 1.15
+
+# CNN candidate classifier. The model was trained with 96x96 crops at 1240px
+# width; at 620px runtime this maps to 48x48 before resizing back to 96x96.
 USE_CNN_CLASSIFIER = True
-CNN_MODEL_PATH = ""  # Empty means cv/DetectBullets/models/mobilenetv3_bullet.pt
+CNN_MODEL_PATH = ""
 CNN_TRAINING_WIDTH = 1240
 CNN_CROP_SCALE = WIDTH / CNN_TRAINING_WIDTH
+CNN_EVERY_N_FRAMES = 1
+CNN_MAX_CANDIDATES_PER_FRAME = 0
+USE_CONFIRMED_MASK_FOR_MOG2_CANDIDATES = True
+
+# Preview only affects UI cost. Detection still uses the original input frame.
+MAIN_PREVIEW_MAX_WIDTH = 900
+SHOW_SCORING_WINDOWS = True

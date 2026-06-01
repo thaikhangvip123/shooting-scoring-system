@@ -1,10 +1,12 @@
 import cv2
 import numpy as np
 import queue
+import time
 from pathlib import Path
+
 from config import *
 from scoring import calculate_score
-from layer1 import process_layer_1
+from layer1 import create_mog2_subtractor, process_layer_1, process_layer_1_mog2
 from layer2 import process_layer_2
 from layer3 import tracking_hungarian
 
@@ -91,11 +93,17 @@ def filter_candidates_with_cnn(classifier, image_bgr, candidates):
     if classifier is None or not candidates:
         return candidates
 
+    if CNN_MAX_CANDIDATES_PER_FRAME > 0:
+        candidates = sorted(
+            candidates,
+            key=lambda candidate: cv2.contourArea(candidate["contour"]),
+            reverse=True,
+        )[:CNN_MAX_CANDIDATES_PER_FRAME]
+
     crop_size = max(2, int(round(classifier.input_size * CNN_CROP_SCALE)))
     if crop_size % 2:
         crop_size += 1
 
-    scored_candidates = []
     patch_rows = []
     for candidate in candidates:
         scored = dict(candidate)
@@ -103,7 +111,6 @@ def filter_candidates_with_cnn(classifier, image_bgr, candidates):
         if patch is None:
             continue
         patch_rows.append((scored, patch))
-        scored_candidates.append(scored)
 
     probabilities = predict_patches_batch(classifier, [row[1] for row in patch_rows])
     kept = []
@@ -114,99 +121,421 @@ def filter_candidates_with_cnn(classifier, image_bgr, candidates):
 
     return kept
 
+
+def should_run_cnn(frame_idx):
+    return CNN_EVERY_N_FRAMES <= 1 or frame_idx % CNN_EVERY_N_FRAMES == 0
+
+
+def remove_confirmed_from_mask(mask, confirmed_items, radius):
+    clean_mask = mask.copy()
+    radius_factor = globals().get("CONFIRMED_MASK_RADIUS_FACTOR", 1.0)
+
+    for _, data in confirmed_items.items():
+        cx, cy = data["pos"]
+        cv2.circle(
+            clean_mask,
+            (int(cx), int(cy)),
+            int(radius * radius_factor),
+            0,
+            -1,
+        )
+
+    return clean_mask
+
+
+def build_sequential_change_mask(prev_gray, current_gray):
+    if prev_gray is None:
+        return np.zeros(current_gray.shape, dtype=np.uint8)
+
+    new_dark = cv2.subtract(prev_gray, current_gray)
+    _, change_mask = cv2.threshold(
+        new_dark,
+        SEQUENTIAL_DIFF_THRESH,
+        255,
+        cv2.THRESH_BINARY,
+    )
+
+    kernel_open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    change_mask = cv2.morphologyEx(change_mask, cv2.MORPH_OPEN, kernel_open)
+    kernel_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+    change_mask = cv2.morphologyEx(change_mask, cv2.MORPH_CLOSE, kernel_close)
+
+    filtered = np.zeros_like(change_mask)
+    cnts, _ = cv2.findContours(change_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for c in cnts:
+        if cv2.contourArea(c) >= SEQUENTIAL_MIN_AREA:
+            cv2.drawContours(filtered, [c], -1, 255, -1)
+
+    return filtered
+
+
+def extract_candidates_from_mask(mask):
+    cnts, _ = cv2.findContours(
+        mask,
+        cv2.RETR_EXTERNAL,
+        cv2.CHAIN_APPROX_SIMPLE,
+    )
+
+    candidates = []
+    min_area = MOG2_MIN_AREA if USE_MOG2_LAYER1 else LAYER1_CLUSTER_MIN_AREA
+    max_area = MOG2_MAX_AREA if USE_MOG2_LAYER1 else None
+
+    for c in cnts:
+        contour_area = cv2.contourArea(c)
+        if contour_area < min_area:
+            continue
+        if max_area is not None and contour_area > max_area:
+            continue
+
+        hull = cv2.convexHull(c)
+        area = cv2.contourArea(hull)
+        perimeter = cv2.arcLength(hull, True)
+
+        if perimeter == 0:
+            continue
+
+        circularity = 4 * np.pi * (area / (perimeter ** 2))
+
+        if circularity >= CIRCULARITY_THRESH:
+            candidates.append({
+                "contour": c,
+                "label": "bullet",
+            })
+
+    return candidates
+
+
+def candidate_center(candidate):
+    contour = candidate["contour"]
+    moments = cv2.moments(contour)
+    if moments["m00"] != 0:
+        return int(moments["m10"] / moments["m00"]), int(moments["m01"] / moments["m00"])
+
+    x, y, w, h = cv2.boundingRect(contour)
+    return x + w // 2, y + h // 2
+
+
+def filter_candidates_by_mask(candidates, mask):
+    if not candidates:
+        return []
+
+    kept = []
+    height, width = mask.shape[:2]
+
+    for candidate in candidates:
+        cx, cy = candidate_center(candidate)
+        if 0 <= cx < width and 0 <= cy < height and mask[cy, cx] > 0:
+            kept.append(candidate)
+
+    return kept
+
+
+def extract_cluster_candidates_with_new_evidence(dark_mask, new_evidence_mask):
+    if cv2.countNonZero(new_evidence_mask) == 0:
+        return extract_candidates_from_mask(
+            remove_confirmed_from_mask(
+                dark_mask,
+                {},
+                EXPECTED_RADIUS,
+            )
+        )
+
+    dilate_size = max(3, int(SEQUENTIAL_DILATE_RADIUS) * 2 + 1)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (dilate_size, dilate_size))
+    evidence_zone = cv2.dilate(new_evidence_mask, kernel)
+
+    cnts, _ = cv2.findContours(dark_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    candidates = []
+    min_area = MOG2_MIN_AREA if USE_MOG2_LAYER1 else LAYER1_CLUSTER_MIN_AREA
+    max_area = MOG2_MAX_AREA if USE_MOG2_LAYER1 else None
+
+    for c in cnts:
+        contour_area = cv2.contourArea(c)
+        if contour_area < min_area:
+            continue
+        if max_area is not None and contour_area > max_area:
+            continue
+
+        x, y, w, h = cv2.boundingRect(c)
+        contour_mask = np.zeros((h, w), dtype=np.uint8)
+        shifted = c - np.array([[[x, y]]])
+        cv2.drawContours(contour_mask, [shifted], -1, 255, -1)
+
+        evidence_roi = evidence_zone[y:y + h, x:x + w]
+        if cv2.countNonZero(cv2.bitwise_and(contour_mask, evidence_roi)) == 0:
+            continue
+
+        hull = cv2.convexHull(c)
+        area = cv2.contourArea(hull)
+        perimeter = cv2.arcLength(hull, True)
+
+        if perimeter == 0:
+            continue
+
+        circularity = 4 * np.pi * (area / (perimeter ** 2))
+
+        if circularity >= CIRCULARITY_THRESH:
+            candidates.append({
+                "contour": c,
+                "label": "bullet",
+            })
+
+    return candidates
+
+
+def draw_candidate_label(warped, candidate):
+    if "cnn_probability" not in candidate:
+        return
+
+    x, y, _, _ = cv2.boundingRect(candidate["contour"])
+    cv2.putText(
+        warped,
+        f"{candidate['cnn_probability']:.2f}",
+        (x, max(20, y - 5)),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.5,
+        (255, 255, 0),
+        1,
+    )
+
+
+def record_new_confirmed(recorder, frame_idx, target_name, target_state, new_confirmed_ids):
+    if recorder is None:
+        return
+
+    target_type = target_name.replace("BIA_", "")
+    for bullet_id in new_confirmed_ids:
+        data = target_state["confirmed"].get(bullet_id)
+        if data is None:
+            continue
+
+        cx, cy = data["pos"]
+        radius = data["r"]
+        x_px = float(cx * SCALE_FACTOR)
+        y_px = float(cy * SCALE_FACTOR)
+        radius_px = float(radius * SCALE_FACTOR)
+        score = calculate_score(target_name, (int(x_px), int(y_px)))
+
+        recorder.record(
+            frame_idx=frame_idx,
+            target_type=target_type,
+            bullet_id=bullet_id,
+            x_px=x_px,
+            y_px=y_px,
+            radius=radius_px,
+            scores=score,
+        )
+
+
+def suppress_duplicate_raw_circles(raw_circles):
+    if not raw_circles:
+        return []
+
+    kept = []
+    min_dist = EXPECTED_RADIUS * NMS_MIN_DIST_FACTOR
+
+    for circle in raw_circles:
+        cx, cy, _ = circle
+        duplicate = False
+
+        for kept_circle in kept:
+            kx, ky, _ = kept_circle
+            dist = ((cx - kx) ** 2 + (cy - ky) ** 2) ** 0.5
+            if dist < min_dist:
+                duplicate = True
+                break
+
+        if not duplicate:
+            kept.append(circle)
+
+    return kept
+
+
 def target_worker_thread(target_name, target_state, bg_dict, in_q, out_q, recorder=None):
+    mog2_subtractor = create_mog2_subtractor() if USE_MOG2_LAYER1 else None
     cnn_classifier = create_cnn_classifier()
-    print(f"🚀 Worker {target_name} đã sẵn sàng!")
+    mog2_frame_count = 0
+    print(f"Worker {target_name} ready")
 
     while True:
         item = in_q.get()
-        if item is None: break 
+        if item is None:
+            break
+
+        worker_start = time.time()
         frame, src_pts, frame_idx = item
 
         H, _ = cv2.findHomography(src_pts, dst_points)
         warped = cv2.warpPerspective(frame, H, (WIDTH, HEIGHT))
-        warped_gray = cv2.GaussianBlur(cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY), (5, 5), 0)
+        warped_gray = cv2.GaussianBlur(
+            cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY),
+            (5, 5),
+            0,
+        )
 
-        # 1. KHỞI TẠO NỀN (FRAME ĐẦU TIÊN)
         if bg_dict[target_name] is None:
             bg_dict[target_name] = warped_gray
-            put_latest(out_q, (target_name, cv2.resize(warped, (400, 566))))
-            continue 
+            target_state["prev_gray"] = warped_gray.copy()
 
-        # 2. CHẠY LAYER 1 TRƯỚC ĐỂ TÌM MẶT NẠ VẾT ĐẠN (NÉ VẾT ĐẠN RA)
-        candidates, dark_mask = process_layer_1(bg_dict[target_name], warped_gray, dst_points)
-        layer1_candidate_count = len(candidates)
-        candidates = filter_candidates_with_cnn(cnn_classifier, warped, candidates)
-        
-        # 3. HỌC NỀN ĐỘNG (THÔNG MINH)
-        # Tính toán nền mới tạm thời
-        new_bg = cv2.addWeighted(bg_dict[target_name], 1.0 - BG_ALPHA, warped_gray, BG_ALPHA, 0)
-        # Dùng np.where: Nơi nào CÓ vết đạn đen (dark_mask > 0) -> Giữ nền CŨ. 
-        # Nơi nào là giấy sạch -> Cập nhật nền MỚI.
+            if mog2_subtractor is not None:
+                mog2_frame_count += 1
+                mog2_subtractor.apply(warped_gray, learningRate=-1)
+
+            worker_elapsed = time.time() - worker_start
+            worker_fps = 1.0 / worker_elapsed if worker_elapsed > 0 else 0
+            cv2.putText(
+                warped,
+                f"Worker FPS: {worker_fps:.1f}",
+                (30, 110),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1.0,
+                (255, 0, 0),
+                2,
+            )
+
+            put_latest(out_q, (target_name, cv2.resize(warped, (400, 566))))
+            continue
+
+        if USE_MOG2_LAYER1:
+            mog2_frame_count += 1
+            candidates, dark_mask = process_layer_1_mog2(
+                mog2_subtractor,
+                warped_gray,
+                dst_points,
+                mog2_frame_count,
+            )
+        else:
+            candidates, dark_mask = process_layer_1(
+                bg_dict[target_name],
+                warped_gray,
+                dst_points,
+            )
+
+        new_only_mask = remove_confirmed_from_mask(
+            dark_mask,
+            target_state["confirmed"],
+            EXPECTED_RADIUS,
+        )
+
+        if USE_MOG2_LAYER1 and mog2_frame_count <= MOG2_WARMUP_FRAMES:
+            new_candidates = []
+        elif USE_MOG2_LAYER1:
+            new_candidates = (
+                filter_candidates_by_mask(candidates, new_only_mask)
+                if USE_CONFIRMED_MASK_FOR_MOG2_CANDIDATES
+                else candidates
+            )
+        else:
+            new_candidates = extract_candidates_from_mask(new_only_mask)
+
+        sequential_mask = build_sequential_change_mask(
+            target_state.get("prev_gray"),
+            warped_gray,
+        )
+
+        if (
+            cv2.countNonZero(sequential_mask) > 0
+            and not USE_MOG2_LAYER1
+            and not (USE_MOG2_LAYER1 and mog2_frame_count <= MOG2_WARMUP_FRAMES)
+        ):
+            new_candidates = extract_cluster_candidates_with_new_evidence(
+                dark_mask,
+                sequential_mask,
+            )
+
+        new_bg = cv2.addWeighted(
+            bg_dict[target_name],
+            1.0 - BG_ALPHA,
+            warped_gray,
+            BG_ALPHA,
+            0,
+        )
         bg_dict[target_name] = np.where(dark_mask > 0, bg_dict[target_name], new_bg)
 
-        # 4. CHẠY LAYER 2 (RANSAC / HOUGH)
-        raw_circles = []
-        for cand in candidates:
-            # Vẽ viền màu Cyan cho các candidate chưa confirm
-            cv2.drawContours(warped, [cand["contour"]], -1, (255, 255, 0), 1)
-            if "cnn_probability" in cand:
-                x, y, _, _ = cv2.boundingRect(cand["contour"])
-                cv2.putText(
-                    warped,
-                    f"{cand['cnn_probability']:.2f}",
-                    (x, max(20, y - 5)),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.5,
-                    (255, 255, 0),
-                    1,
-                )
-            raw_circles.extend(process_layer_2(cand["contour"], EXPECTED_RADIUS, warped_gray.shape))
+        before_cnn_count = len(new_candidates)
+        if cnn_classifier is not None:
+            if should_run_cnn(frame_idx):
+                new_candidates = filter_candidates_with_cnn(cnn_classifier, warped, new_candidates)
+            else:
+                new_candidates = []
 
-        # 5. CHẠY LAYER 3 (HUNGARIAN TRACKING)
+        raw_circles = []
+        for cand in new_candidates:
+            contour = cand["contour"]
+            cv2.drawContours(warped, [contour], -1, (255, 255, 0), 1)
+            draw_candidate_label(warped, cand)
+            raw_circles.extend(
+                process_layer_2(
+                    contour,
+                    EXPECTED_RADIUS,
+                    warped_gray.shape,
+                    warped_gray,
+                )
+            )
+
+        raw_circles = suppress_duplicate_raw_circles(raw_circles)
+
         prev_confirmed_ids = set(target_state["confirmed"].keys())
-        all_display = tracking_hungarian(target_state, raw_circles, frame_idx)
+        all_display = tracking_hungarian(
+            target_state,
+            raw_circles,
+            frame_idx,
+            sequential_mask,
+        )
         new_confirmed_ids = set(target_state["confirmed"].keys()) - prev_confirmed_ids
-        
-        # 6. TÍNH ĐIỂM & VẼ KẾT QUẢ CHÍNH THỨC
+        record_new_confirmed(recorder, frame_idx, target_name, target_state, new_confirmed_ids)
+
+        if cv2.countNonZero(sequential_mask) == 0 or len(raw_circles) > 0:
+            target_state["prev_gray"] = warped_gray.copy()
+
         total_score = 0
-        for (bullet_id, cx, cy, r) in all_display:
+        for bullet_id, cx, cy, r in all_display:
             px = (int(cx), int(cy))
-            x_px = float(cx * SCALE_FACTOR)
-            y_px = float(cy * SCALE_FACTOR)
-            radius_px = float(r * SCALE_FACTOR)
-            target_type = target_name.replace("BIA_", "")
-            score = calculate_score(target_name, (int(x_px), int(y_px)))
+            score = calculate_score(target_name, (int(cx * SCALE_FACTOR), int(cy * SCALE_FACTOR)))
             total_score += score
 
-            if recorder is not None and bullet_id in new_confirmed_ids:
-                recorder.record(
-                    frame_idx=frame_idx,
-                    target_type=target_type,
-                    bullet_id=bullet_id,
-                    x_px=x_px,
-                    y_px=y_px,
-                    radius=radius_px,
-                    scores=score,
-                )
-            
-            # Vết đạn đã Tracking thành công sẽ có màu Xanh Lá + Tâm đen
             cv2.circle(warped, px, int(r), (0, 255, 0), 2)
             cv2.circle(warped, px, 3, (0, 0, 0), -1)
-            
-            # Ghi số điểm (Chữ trắng viền đen để không bị chìm màu)
-            cv2.putText(warped, str(score), (px[0]+int(r), px[1]-5), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0,0,0), 5)
-            cv2.putText(warped, str(score), (px[0]+int(r), px[1]-5), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255,255,255), 2)
 
-        cv2.putText(warped, f"Hits: {len(all_display)} | Total: {total_score}", (30, 60), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0,0,255), 3)
+        worker_elapsed = time.time() - worker_start
+        worker_fps = 1.0 / worker_elapsed if worker_elapsed > 0 else 0
+
+        cv2.putText(
+            warped,
+            f"Hits: {len(all_display)} | Total: {total_score}",
+            (30, 60),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1.5,
+            (0, 0, 255),
+            3,
+        )
+        cv2.putText(
+            warped,
+            f"Worker FPS: {worker_fps:.1f}",
+            (30, 110),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1.0,
+            (255, 0, 0),
+            2,
+        )
+        cv2.putText(
+            warped,
+            f"Candidates: {len(candidates)} -> New: {len(new_candidates)} | Raw: {len(raw_circles)}",
+            (30, 150),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.9,
+            (255, 0, 0),
+            2,
+        )
         if cnn_classifier is not None:
             cv2.putText(
                 warped,
-                f"CNN: {len(candidates)}/{layer1_candidate_count}",
-                (30, 105),
+                f"CNN: {len(new_candidates)}/{before_cnn_count}",
+                (30, 190),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                1.0,
+                0.9,
                 (255, 255, 0),
                 2,
             )
+
         put_latest(out_q, (target_name, cv2.resize(warped, (400, 566))))

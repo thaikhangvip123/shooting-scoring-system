@@ -7,6 +7,13 @@ import cv2
 import cv2.aruco as aruco
 import numpy as np
 
+from config import (
+    ARUCO_DETECT_EVERY_N_FRAMES,
+    CV2_NUM_THREADS,
+    MAIN_PREVIEW_MAX_WIDTH,
+    SHOW_SCORING_WINDOWS,
+    VIDEO_PATH,
+)
 from evaluation import create_detection_recorder_from_env
 from state import app_bg_state, app_tracked_state
 from worker import target_worker_thread
@@ -48,7 +55,7 @@ def parse_args():
     parser.add_argument(
         "--video",
         default="",
-        help="Optional video file for offline testing.",
+        help="Optional video file for offline testing. If omitted with --use-config-video, VIDEO_PATH is used.",
     )
     parser.add_argument(
         "--camera",
@@ -71,6 +78,11 @@ def parse_args():
         help="Scale used only for ArUco detection. 1.0 keeps full input resolution.",
     )
     parser.add_argument("--sharpen", action="store_true", help="Apply mild sharpening before detection.")
+    parser.add_argument(
+        "--use-config-video",
+        action="store_true",
+        help="Use VIDEO_PATH from config.py instead of NDI when --video/--camera are omitted.",
+    )
     parser.add_argument(
         "--no-preview",
         action="store_true",
@@ -204,9 +216,10 @@ class NdiSource:
 
 
 def open_source(args):
-    if args.video:
-        cap = cv2.VideoCapture(args.video)
-        source = CvVideoSource(cap, args.video)
+    video_path = args.video or (VIDEO_PATH if args.use_config_video else "")
+    if video_path:
+        cap = cv2.VideoCapture(video_path)
+        source = CvVideoSource(cap, video_path)
     elif args.camera is not None:
         cap = cv2.VideoCapture(args.camera, cv2.CAP_DSHOW)
         source_label = f"camera:{args.camera}"
@@ -260,8 +273,17 @@ def replace_queue_item(q, item):
         pass
 
 
+def resize_for_preview(frame, max_width):
+    if max_width <= 0 or frame.shape[1] <= max_width:
+        return frame
+
+    scale = max_width / frame.shape[1]
+    return cv2.resize(frame, (max_width, int(frame.shape[0] * scale)), interpolation=cv2.INTER_AREA)
+
+
 def main():
     args = parse_args()
+    cv2.setNumThreads(CV2_NUM_THREADS)
     aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
     detector = aruco.ArucoDetector(aruco_dict, aruco.DetectorParameters())
     recorder = create_detection_recorder_from_env()
@@ -281,17 +303,21 @@ def main():
     source = open_source(args)
     if not args.no_preview:
         cv2.namedWindow(MAIN_WINDOW_NAME, cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(MAIN_WINDOW_NAME, 1920, 1080)
+        cv2.resizeWindow(MAIN_WINDOW_NAME, MAIN_PREVIEW_MAX_WIDTH, 540)
 
     frame_idx = 0
     prev_time = 0
+    last_marker_dict = None
     print(f"\nDang nhan tu: {source.source_label}")
     print("Nhan Q de thoat.")
+    print(f"ArUco detect every {ARUCO_DETECT_EVERY_N_FRAMES} frame(s)")
 
     try:
         while source.is_opened():
             ret, frame = source.read()
             if not ret:
+                if isinstance(source, CvVideoSource) and not source.drop_camera_buffer:
+                    break
                 continue
 
             frame = preprocess_frame(frame, args)
@@ -301,14 +327,18 @@ def main():
             fps = 1 / (curr_time - prev_time) if prev_time > 0 else 0
             prev_time = curr_time
 
-            cv2.putText(frame, f"FPS: {int(fps)}", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3)
-            corners, ids, _ = detect_aruco(detector, frame, args.detect_scale)
+            if frame_idx % ARUCO_DETECT_EVERY_N_FRAMES == 0 or last_marker_dict is None:
+                corners, ids, _ = detect_aruco(detector, frame, args.detect_scale)
+                if ids is not None:
+                    last_marker_dict = {int(ids[i][0]): corners[i][0] for i in range(len(ids))}
 
             if not args.no_preview:
-                cv2.imshow(MAIN_WINDOW_NAME, frame)
+                preview = resize_for_preview(frame, MAIN_PREVIEW_MAX_WIDTH)
+                cv2.putText(preview, f"FPS: {int(fps)}", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3)
+                cv2.imshow(MAIN_WINDOW_NAME, preview)
 
-            if ids is not None:
-                marker_dict = {ids[i][0]: corners[i][0] for i in range(len(ids))}
+            if last_marker_dict is not None:
+                marker_dict = last_marker_dict
                 for target_name, id_set in TARGET_SETS.items():
                     if all(marker_id in marker_dict for marker_id in id_set):
                         top_left, top_right, bottom_left, bottom_right = id_set
@@ -327,12 +357,10 @@ def main():
                 while True:
                     target_name, warped_result = output_queue.get_nowait()
                     latest_outputs[target_name] = warped_result
+                    if SHOW_SCORING_WINDOWS:
+                        cv2.imshow(f"Scoring: {target_name}", warped_result)
             except queue.Empty:
                 pass
-
-            for target_name, warped_result in latest_outputs.items():
-                if warped_result is not None:
-                    cv2.imshow(f"Scoring: {target_name}", warped_result)
 
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
