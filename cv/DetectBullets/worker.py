@@ -351,9 +351,19 @@ def suppress_duplicate_raw_circles(raw_circles):
     return kept
 
 
-def target_worker_thread(target_name, target_state, bg_dict, in_q, out_q, recorder=None):
+def target_worker_thread(
+    target_name,
+    target_state,
+    bg_dict,
+    in_q,
+    out_q,
+    recorder=None,
+    cnn_classifier=None,
+    cnn_lock=None,
+):
     mog2_subtractor = create_mog2_subtractor() if USE_MOG2_LAYER1 else None
-    cnn_classifier = create_cnn_classifier()
+    if cnn_classifier is None:
+        cnn_classifier = create_cnn_classifier()
     mog2_frame_count = 0
     print(f"Worker {target_name} ready")
 
@@ -455,7 +465,11 @@ def target_worker_thread(target_name, target_state, bg_dict, in_q, out_q, record
         before_cnn_count = len(new_candidates)
         if cnn_classifier is not None:
             if should_run_cnn(frame_idx):
-                new_candidates = filter_candidates_with_cnn(cnn_classifier, warped, new_candidates)
+                if cnn_lock is not None:
+                    with cnn_lock:
+                        new_candidates = filter_candidates_with_cnn(cnn_classifier, warped, new_candidates)
+                else:
+                    new_candidates = filter_candidates_with_cnn(cnn_classifier, warped, new_candidates)
             else:
                 new_candidates = []
 

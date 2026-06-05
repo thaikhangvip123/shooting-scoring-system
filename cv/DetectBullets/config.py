@@ -2,7 +2,7 @@ import numpy as np
 
 # Paths
 BASE_DIR = "D:/baitapxaml/HK252/DATN/Main/shooting-scoring-system/cv"
-VIDEO_PATH = f"{BASE_DIR}/Videos/target5.mp4"
+VIDEO_PATH = f"{BASE_DIR}/Videos/target4.mp4"
 CV2_NUM_THREADS = 1
 
 PATH_IPSC_POLY = f"{BASE_DIR}/Scoring/IPSC/polygon.txt"
@@ -75,7 +75,7 @@ CONFIRMED_MASK_RADIUS_FACTOR = 1.0
 
 # MOG2 Layer 1 experiment
 USE_MOG2_LAYER1 = True
-MOG2_HISTORY = 500
+MOG2_HISTORY = 300
 MOG2_VAR_THRESHOLD = 25
 MOG2_DETECT_SHADOWS = True
 MOG2_WARMUP_FRAMES = 30

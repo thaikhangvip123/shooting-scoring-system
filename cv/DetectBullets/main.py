@@ -16,7 +16,7 @@ from config import (
 )
 from evaluation import create_detection_recorder_from_env
 from state import app_bg_state, app_tracked_state
-from worker import target_worker_thread
+from worker import create_cnn_classifier, target_worker_thread
 
 
 TARGET_SETS = {
@@ -287,6 +287,8 @@ def main():
     aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
     detector = aruco.ArucoDetector(aruco_dict, aruco.DetectorParameters())
     recorder = create_detection_recorder_from_env()
+    cnn_classifier = create_cnn_classifier()
+    cnn_lock = threading.Lock() if cnn_classifier is not None else None
 
     input_queues = {name: queue.Queue(maxsize=1) for name in TARGET_SETS}
     output_queue = queue.Queue(maxsize=len(TARGET_SETS))
@@ -295,7 +297,16 @@ def main():
     for name in TARGET_SETS:
         thread = threading.Thread(
             target=target_worker_thread,
-            args=(name, app_tracked_state[name], app_bg_state, input_queues[name], output_queue, recorder),
+            args=(
+                name,
+                app_tracked_state[name],
+                app_bg_state,
+                input_queues[name],
+                output_queue,
+                recorder,
+                cnn_classifier,
+                cnn_lock,
+            ),
             daemon=True,
         )
         thread.start()
