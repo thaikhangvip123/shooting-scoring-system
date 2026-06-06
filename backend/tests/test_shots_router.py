@@ -23,6 +23,13 @@ SAMPLE_SHOT = {
 }
 
 
+def start_session(target_type="TRON"):
+    client.delete("/shots")
+    r = client.post("/session/start", json={"target_type": target_type})
+    assert r.status_code == 200
+    return r.json()
+
+
 def test_health():
     r = client.get("/health")
     assert r.status_code == 200
@@ -30,6 +37,7 @@ def test_health():
 
 
 def test_post_shot_returns_201():
+    start_session("TRON")
     r = client.post("/shot", json=SAMPLE_SHOT)
     assert r.status_code == 201
     body = r.json()
@@ -42,6 +50,7 @@ def test_post_shot_returns_201():
 
 
 def test_post_shot_scores_correctly():
+    start_session("TRON")
     # X-ring shot (near centre)
     r = client.post("/shot", json={
         "x_px": 1240.5,
@@ -55,6 +64,7 @@ def test_post_shot_scores_correctly():
 
 
 def test_post_shot_miss():
+    start_session("TRON")
     # Way outside outermost ring
     r = client.post("/shot", json={
         "x_px": 300.0,
@@ -68,6 +78,7 @@ def test_post_shot_miss():
 
 
 def test_get_latest():
+    start_session("TRON")
     client.post("/shot", json={
         "x_px": 1245.0,
         "y_px": 1759.0,
@@ -108,6 +119,7 @@ def test_heatmap_endpoint():
 
 
 def test_delete_shots():
+    start_session("TRON")
     client.post("/shot", json={
         "x_px": 1241.0,
         "y_px": 1755.0,
@@ -116,8 +128,8 @@ def test_delete_shots():
     })
     r = client.delete("/shots")
     assert r.status_code == 204
-    r2 = client.get("/latest")
-    assert r2.json() is None
+    r2 = client.get("/history?current_session=true")
+    assert r2.json()["total"] == 0
 
 
 def test_invalid_payload_rejected():
@@ -126,6 +138,7 @@ def test_invalid_payload_rejected():
 
 
 def test_post_ipsc_pixel_shot_scores_polygon():
+    start_session("IPSC")
     r = client.post(
         "/shot",
         json={
@@ -142,6 +155,7 @@ def test_post_ipsc_pixel_shot_scores_polygon():
 
 
 def test_post_nguoi_pixel_shot_scores_contour():
+    start_session("NGUOI")
     r = client.post(
         "/shot",
         json={

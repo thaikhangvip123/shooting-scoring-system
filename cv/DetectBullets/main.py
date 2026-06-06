@@ -1,4 +1,7 @@
 import argparse
+import asyncio
+import json
+import os
 import queue
 import threading
 import time
@@ -25,6 +28,11 @@ TARGET_SETS = {
     "BIA_NGUOI": [8, 9, 10, 11],
 }
 MAIN_WINDOW_NAME = "0. NDI Stream - Detection Input"
+CV_TARGET_BY_TYPE = {
+    "TRON": "BIA_TRON",
+    "IPSC": "BIA_IPSC",
+    "NGUOI": "BIA_NGUOI",
+}
 
 
 def parse_args():
@@ -88,7 +96,109 @@ def parse_args():
         action="store_true",
         help="Disable the main input preview window.",
     )
+    parser.add_argument(
+        "--backend-url",
+        default=os.environ.get("BACKEND_URL", "http://localhost:8000"),
+        help="Backend HTTP base URL used for posting confirmed shots.",
+    )
+    parser.add_argument(
+        "--backend-ws-url",
+        default=os.environ.get("BACKEND_WS_URL", "ws://localhost:8000/ws/shots"),
+        help="Backend websocket URL used for session control messages.",
+    )
+    parser.add_argument(
+        "--disable-backend-control",
+        action="store_true",
+        help="Run detection immediately without waiting for backend Start Session.",
+    )
     return parser.parse_args()
+
+
+class RuntimeControl:
+    def __init__(self, enabled=True):
+        self.enabled = enabled
+        self._lock = threading.Lock()
+        self.status = "running" if not enabled else "idle"
+        self.session_id = None
+        self.target_type = "TRON" if not enabled else None
+        self.active_target = "BIA_TRON" if not enabled else None
+        self.generation = 0
+
+    def snapshot(self):
+        with self._lock:
+            return {
+                "status": self.status,
+                "session_id": self.session_id,
+                "target_type": self.target_type,
+                "active_target": self.active_target,
+                "generation": self.generation,
+            }
+
+    def handle_message(self, message):
+        msg_type = message.get("type")
+        if msg_type == "cv_start":
+            target_type = str(message.get("target_type") or "TRON").upper()
+            cv_target = message.get("cv_target") or CV_TARGET_BY_TYPE.get(target_type)
+            if cv_target not in TARGET_SETS:
+                print(f"Ignoring cv_start with unknown target: {cv_target}")
+                return
+
+            with self._lock:
+                self.status = "running"
+                self.session_id = message.get("session_id") or (message.get("session") or {}).get("session_id")
+                self.target_type = target_type
+                self.active_target = cv_target
+                self.generation += 1
+            print(f"CV started: session={self.session_id} target={cv_target}")
+            return
+
+        if msg_type == "session_completed":
+            with self._lock:
+                if self.session_id is None or message.get("session_id") in (None, self.session_id):
+                    self.status = "completed"
+            print("CV stopped: session completed")
+            return
+
+        if msg_type == "session_reset":
+            with self._lock:
+                self.status = "idle"
+                self.session_id = None
+                self.target_type = None
+                self.active_target = None
+                self.generation += 1
+            print("CV reset: waiting for Start Session")
+
+
+def start_backend_control_listener(ws_url, runtime_control):
+    async def listen_forever():
+        try:
+            import websockets
+        except ModuleNotFoundError:
+            print("Backend control disabled: install websockets to receive Start Session commands.")
+            return
+
+        while True:
+            try:
+                async with websockets.connect(ws_url) as ws:
+                    print(f"Connected to backend control websocket: {ws_url}")
+                    async for raw_message in ws:
+                        try:
+                            message = json.loads(raw_message)
+                        except json.JSONDecodeError:
+                            continue
+                        if message.get("type") in {"connected", "ping"}:
+                            continue
+                        runtime_control.handle_message(message)
+            except Exception as exc:
+                print(f"Backend control websocket disconnected: {exc}")
+                await asyncio.sleep(3)
+
+    thread = threading.Thread(
+        target=lambda: asyncio.run(listen_forever()),
+        daemon=True,
+    )
+    thread.start()
+    return thread
 
 
 class CvVideoSource:
@@ -283,6 +393,10 @@ def resize_for_preview(frame, max_width):
 
 def main():
     args = parse_args()
+    runtime_control = RuntimeControl(enabled=not args.disable_backend_control)
+    if not args.disable_backend_control:
+        start_backend_control_listener(args.backend_ws_url, runtime_control)
+
     cv2.setNumThreads(CV2_NUM_THREADS)
     aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
     detector = aruco.ArucoDetector(aruco_dict, aruco.DetectorParameters())
@@ -306,6 +420,7 @@ def main():
                 recorder,
                 cnn_classifier,
                 cnn_lock,
+                "" if args.disable_backend_control else args.backend_url,
             ),
             daemon=True,
         )
@@ -319,9 +434,14 @@ def main():
     frame_idx = 0
     prev_time = 0
     last_marker_dict = None
+    last_control_generation = runtime_control.snapshot()["generation"]
     print(f"\nDang nhan tu: {source.source_label}")
     print("Nhan Q de thoat.")
     print(f"ArUco detect every {ARUCO_DETECT_EVERY_N_FRAMES} frame(s)")
+    if args.disable_backend_control:
+        print("Backend control disabled: detecting immediately.")
+    else:
+        print("Dang cho Start Session tu dashboard/backend...")
 
     try:
         while source.is_opened():
@@ -338,31 +458,53 @@ def main():
             fps = 1 / (curr_time - prev_time) if prev_time > 0 else 0
             prev_time = curr_time
 
-            if frame_idx % ARUCO_DETECT_EVERY_N_FRAMES == 0 or last_marker_dict is None:
-                corners, ids, _ = detect_aruco(detector, frame, args.detect_scale)
-                if ids is not None:
-                    last_marker_dict = {int(ids[i][0]): corners[i][0] for i in range(len(ids))}
-
             if not args.no_preview:
                 preview = resize_for_preview(frame, MAIN_PREVIEW_MAX_WIDTH)
                 cv2.putText(preview, f"FPS: {int(fps)}", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3)
                 cv2.imshow(MAIN_WINDOW_NAME, preview)
 
+            control = runtime_control.snapshot()
+            if control["generation"] != last_control_generation:
+                last_marker_dict = None
+                for q in input_queues.values():
+                    replace_queue_item(q, {"type": "reset"})
+                last_control_generation = control["generation"]
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    break
+                continue
+
+            if control["status"] != "running" or control["active_target"] not in TARGET_SETS:
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    break
+                continue
+
+            if frame_idx % ARUCO_DETECT_EVERY_N_FRAMES == 0 or last_marker_dict is None:
+                corners, ids, _ = detect_aruco(detector, frame, args.detect_scale)
+                if ids is not None:
+                    last_marker_dict = {int(ids[i][0]): corners[i][0] for i in range(len(ids))}
+
+            active_target = control["active_target"]
             if last_marker_dict is not None:
                 marker_dict = last_marker_dict
-                for target_name, id_set in TARGET_SETS.items():
-                    if all(marker_id in marker_dict for marker_id in id_set):
-                        top_left, top_right, bottom_left, bottom_right = id_set
-                        src_pts = np.array(
-                            [
-                                marker_dict[top_left][0],
-                                marker_dict[top_right][1],
-                                marker_dict[bottom_right][2],
-                                marker_dict[bottom_left][3],
-                            ],
-                            dtype=np.float32,
-                        )
-                        replace_queue_item(input_queues[target_name], (frame, src_pts, frame_idx))
+                id_set = TARGET_SETS[active_target]
+                if all(marker_id in marker_dict for marker_id in id_set):
+                    top_left, top_right, bottom_left, bottom_right = id_set
+                    src_pts = np.array(
+                        [
+                            marker_dict[top_left][0],
+                            marker_dict[top_right][1],
+                            marker_dict[bottom_right][2],
+                            marker_dict[bottom_left][3],
+                        ],
+                        dtype=np.float32,
+                    )
+                    replace_queue_item(input_queues[active_target], {
+                        "type": "frame",
+                        "frame": frame,
+                        "src_pts": src_pts,
+                        "frame_idx": frame_idx,
+                        "session_id": control["session_id"],
+                    })
 
             try:
                 while True:

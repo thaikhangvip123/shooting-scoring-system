@@ -10,7 +10,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
 
-from backend.models.session import SessionSettings, SessionStatus
+from backend.models.session import SessionSettings, SessionStartRequest, SessionStatus
 from backend.models.shot import ShotCreate, ShotResponse, ShotHistoryResponse
 from backend.services import shot_service
 from backend.services.session_service import session_manager
@@ -20,6 +20,18 @@ from backend.routers.websocket import manager as ws_manager
 
 router = APIRouter(prefix="", tags=["shots"])
 # router = logger  # alias to keep variable name consistent
+
+CV_TARGET_BY_TYPE = {
+    "TRON": "BIA_TRON",
+    "IPSC": "BIA_IPSC",
+    "NGUOI": "BIA_NGUOI",
+}
+
+
+def cv_target_for(target_type: str | None) -> str | None:
+    if target_type is None:
+        return None
+    return CV_TARGET_BY_TYPE.get(target_type.upper())
 
 
 @router.post(
@@ -85,6 +97,24 @@ async def delete_shots():
 )
 async def get_session() -> SessionStatus:
     return await session_manager.get_status()
+
+
+@router.post(
+    "/session/start",
+    response_model=SessionStatus,
+    summary="Start the current shooting session and arm CV detection",
+)
+async def start_session(request: SessionStartRequest) -> SessionStatus:
+    session = await session_manager.start(request)
+    if ws_manager.client_count > 0:
+        await ws_manager.broadcast({
+            "type": "cv_start",
+            "session": session.model_dump(mode="json"),
+            "session_id": session.session_id,
+            "target_type": session.target_type,
+            "cv_target": cv_target_for(session.target_type),
+        })
+    return session
 
 
 @router.put(

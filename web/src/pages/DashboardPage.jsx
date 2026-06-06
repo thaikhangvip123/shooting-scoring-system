@@ -19,6 +19,7 @@ export default function DashboardPage({
   targetType,
   onTargetTypeChange,
   session,
+  onStartSession,
   onShotsPerSessionChange,
 }) {
   const visibleShots = currentShots ?? shots;
@@ -26,6 +27,8 @@ export default function DashboardPage({
   const latestTargetShot = targetShots[0] ?? null;
   const [draftShotsPerSession, setDraftShotsPerSession] = useState(session?.shots_per_session ?? 10);
   const [savingSession, setSavingSession] = useState(false);
+  const [startingSession, setStartingSession] = useState(false);
+  const sessionRunning = session?.status === 'running';
   const { color, label } = latestTargetShot
     ? scoreTargetShot(latestTargetShot, targetType)
     : {};
@@ -45,6 +48,15 @@ export default function DashboardPage({
       await onShotsPerSessionChange?.(next);
     } finally {
       setSavingSession(false);
+    }
+  };
+
+  const handleStartSession = async () => {
+    setStartingSession(true);
+    try {
+      await onStartSession?.(targetType);
+    } finally {
+      setStartingSession(false);
     }
   };
 
@@ -86,7 +98,7 @@ export default function DashboardPage({
 
         {/* Target */}
         <div className="card" style={{ padding: 16, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
-          <TargetTypeSelector value={targetType} onChange={onTargetTypeChange} />
+          <TargetTypeSelector value={targetType} onChange={onTargetTypeChange} disabled={sessionRunning} />
           <TargetCanvas shots={visibleShots} latestShot={latestTargetShot} targetType={targetType} />
           <div
             style={{
@@ -131,14 +143,34 @@ export default function DashboardPage({
                 Session complete
               </span>
             )}
+            {sessionRunning && (
+              <span
+                style={{
+                  color: 'var(--c-accent)',
+                  fontWeight: 700,
+                  marginLeft: 4,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Running
+              </span>
+            )}
+            <button
+              className="btn primary"
+              onClick={handleStartSession}
+              disabled={startingSession || sessionRunning}
+              style={{ marginLeft: 'auto' }}
+            >
+              {startingSession ? 'Starting...' : 'Start Session'}
+            </button>
             <button
               className="btn"
               onClick={handleSessionSave}
               disabled={
                 savingSession ||
+                sessionRunning ||
                 (!session?.completed && Number(draftShotsPerSession) === session?.shots_per_session)
               }
-              style={{ marginLeft: 'auto' }}
             >
               {savingSession ? 'Saving...' : session?.completed ? 'Apply New Session' : 'Apply'}
             </button>

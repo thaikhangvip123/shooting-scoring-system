@@ -63,6 +63,10 @@ export const resetSession = () => http.delete('/shots');
 /** GET current shooting session status */
 export const getSessionStatus = () => http.get('/session');
 
+/** POST Start Session with the selected target type */
+export const startSession = (targetType) =>
+  http.post('/session/start', { target_type: targetType });
+
 /** PUT shots-per-session setting */
 export const updateSessionSettings = (shotsPerSession) =>
   http.put('/session', { shots_per_session: shotsPerSession });

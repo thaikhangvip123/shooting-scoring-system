@@ -25,6 +25,7 @@ export default function App() {
     error,
     session,
     wsStatus,
+    start,
     reset,
     setShotsPerSession,
   } = useShots();
@@ -96,6 +97,7 @@ export default function App() {
                       targetType={targetType}
                       onTargetTypeChange={setTargetType}
                       session={session}
+                      onStartSession={start}
                       onShotsPerSessionChange={setShotsPerSession}
                     />
                   }

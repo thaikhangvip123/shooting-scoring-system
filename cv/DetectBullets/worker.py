@@ -1,7 +1,10 @@
 import cv2
+import json
 import numpy as np
 import queue
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from config import *
@@ -18,6 +21,36 @@ def put_latest(out_q, item):
         out_q.put_nowait(item)
     except (queue.Empty, queue.Full):
         pass
+
+
+def reset_worker_detection_state(target_name, target_state, bg_dict):
+    target_state["candidates"].clear()
+    target_state["confirmed"].clear()
+    target_state["next_id"] = 0
+    target_state["prev_gray"] = None
+    bg_dict[target_name] = None
+
+
+def post_shot_to_backend(backend_url, payload):
+    if not backend_url:
+        return
+
+    url = backend_url.rstrip("/") + "/shot"
+    data = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=2.0) as response:
+            response.read()
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        print(f"POST /shot rejected ({exc.code}): {detail}")
+    except Exception as exc:
+        print(f"POST /shot failed: {exc}")
 
 
 def resolve_cnn_model_path():
@@ -299,10 +332,7 @@ def draw_candidate_label(warped, candidate):
     )
 
 
-def record_new_confirmed(recorder, frame_idx, target_name, target_state, new_confirmed_ids):
-    if recorder is None:
-        return
-
+def record_new_confirmed(recorder, frame_idx, target_name, target_state, new_confirmed_ids, backend_url="", session_id=None):
     target_type = target_name.replace("BIA_", "")
     for bullet_id in new_confirmed_ids:
         data = target_state["confirmed"].get(bullet_id)
@@ -316,14 +346,32 @@ def record_new_confirmed(recorder, frame_idx, target_name, target_state, new_con
         radius_px = float(radius * SCALE_FACTOR)
         score = calculate_score(target_name, (int(x_px), int(y_px)))
 
-        recorder.record(
-            frame_idx=frame_idx,
-            target_type=target_type,
-            bullet_id=bullet_id,
-            x_px=x_px,
-            y_px=y_px,
-            radius=radius_px,
-            scores=score,
+        if recorder is not None:
+            recorder.record(
+                frame_idx=frame_idx,
+                target_type=target_type,
+                bullet_id=bullet_id,
+                x_px=x_px,
+                y_px=y_px,
+                radius=radius_px,
+                scores=score,
+            )
+
+        post_shot_to_backend(
+            backend_url,
+            {
+                "x_px": x_px,
+                "y_px": y_px,
+                "shotID": bullet_id,
+                "scores": score,
+                "session_id": session_id,
+                "metadata": {
+                    "target_type": target_type,
+                    "cv_target": target_name,
+                    "frame_idx": frame_idx,
+                    "radius_px": radius_px,
+                },
+            },
         )
 
 
@@ -360,6 +408,7 @@ def target_worker_thread(
     recorder=None,
     cnn_classifier=None,
     cnn_lock=None,
+    backend_url="",
 ):
     mog2_subtractor = create_mog2_subtractor() if USE_MOG2_LAYER1 else None
     if cnn_classifier is None:
@@ -371,9 +420,22 @@ def target_worker_thread(
         item = in_q.get()
         if item is None:
             break
+        if isinstance(item, dict) and item.get("type") == "reset":
+            reset_worker_detection_state(target_name, target_state, bg_dict)
+            mog2_subtractor = create_mog2_subtractor() if USE_MOG2_LAYER1 else None
+            mog2_frame_count = 0
+            print(f"Worker {target_name} reset")
+            continue
 
         worker_start = time.time()
-        frame, src_pts, frame_idx = item
+        session_id = None
+        if isinstance(item, dict):
+            frame = item["frame"]
+            src_pts = item["src_pts"]
+            frame_idx = item["frame_idx"]
+            session_id = item.get("session_id")
+        else:
+            frame, src_pts, frame_idx = item
 
         H, _ = cv2.findHomography(src_pts, dst_points)
         warped = cv2.warpPerspective(frame, H, (WIDTH, HEIGHT))
@@ -497,7 +559,15 @@ def target_worker_thread(
             sequential_mask,
         )
         new_confirmed_ids = set(target_state["confirmed"].keys()) - prev_confirmed_ids
-        record_new_confirmed(recorder, frame_idx, target_name, target_state, new_confirmed_ids)
+        record_new_confirmed(
+            recorder,
+            frame_idx,
+            target_name,
+            target_state,
+            new_confirmed_ids,
+            backend_url,
+            session_id,
+        )
 
         if cv2.countNonZero(sequential_mask) == 0 or len(raw_circles) > 0:
             target_state["prev_gray"] = warped_gray.copy()

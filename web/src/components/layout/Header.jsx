@@ -21,7 +21,7 @@ export default function Header({ shots, session, onReset }) {
   const total    = shots.length;
   const totalScore = shots.reduce((s, sh) => s + (sh.score ?? 0), 0);
   const sessionLabel = session
-    ? `Session ${session.session_number} (${session.shot_count}/${session.shots_per_session})`
+    ? `Session ${session.session_number} (${session.shot_count}/${session.shots_per_session}) ${session.status ?? ''}`.trim()
     : 'Session -';
 
   const handleReset = async () => {
@@ -67,6 +67,18 @@ export default function Header({ shots, session, onReset }) {
         >
           {sessionLabel}
         </span>
+        {session?.status === 'running' && (
+          <span
+            style={{
+              fontSize: 12,
+              fontWeight: 700,
+              color: 'var(--c-accent)',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {session.target_type}
+          </span>
+        )}
         {session?.completed && (
           <span
             style={{

@@ -46,7 +46,19 @@ if not getattr(_ss, "_ws_broadcast_patch_applied", False):
         # Broadcast to all WS clients — fire-and-forget
         if ws_manager.client_count > 0:
             import asyncio
-            asyncio.create_task(ws_manager.broadcast(result.model_dump(mode="json")))
+            from backend.services.session_service import session_manager
+
+            async def _broadcast_shot_and_session():
+                await ws_manager.broadcast(result.model_dump(mode="json"))
+                session = await session_manager.get_status()
+                if session.completed:
+                    await ws_manager.broadcast({
+                        "type": "session_completed",
+                        "session": session.model_dump(mode="json"),
+                        "session_id": session.session_id,
+                    })
+
+            asyncio.create_task(_broadcast_shot_and_session())
         return result
 
     _ss.register_shot = _register_and_broadcast  # monkey-patch

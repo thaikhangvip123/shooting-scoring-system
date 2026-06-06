@@ -186,10 +186,12 @@ async def register_shot(payload: ShotCreate) -> ShotResponse:
     if _guard.is_duplicate(payload):
         raise ValueError("Duplicate shot rejected (too close in space and time)")
 
-    session_id, session_number, shot_index, shots_per_session = await session_manager.prepare_shot()
-
     metadata = dict(payload.metadata or {})
     target_type = str(metadata.get("target_type", "TRON")).upper()
+    session_id, session_number, shot_index, shots_per_session, active_target = await session_manager.prepare_shot(target_type)
+    if active_target is not None:
+        target_type = active_target
+
     score, ring, radius = compute_score(target_type, payload.x_px, payload.y_px)
     metadata["target_type"] = target_type
     metadata["session_number"] = session_number
