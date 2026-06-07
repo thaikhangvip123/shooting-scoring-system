@@ -27,6 +27,14 @@ Clean/not-bullet video:
 python cv\DetectBullets\scripts\collect_patches.py --video C:\path\to\not_bullet.mp4 --label not_bullet --output data\warped_frames
 ```
 
+The script prefixes output filenames with the input video name by default, so
+new clips do not overwrite previous `frame_000001...` files. Use `--prefix`
+when you want to set the name manually:
+
+```powershell
+python cv\DetectBullets\scripts\collect_patches.py --video C:\path\to\bullet_02.mp4 --label bullet --output data\warped_frames --prefix bullet_02
+```
+
 Optional target-only export:
 
 ```powershell
@@ -49,11 +57,23 @@ Bullet patches:
 python cv\DetectBullets\scripts\crop_candidate_patches.py --input data\warped_frames\bullet --background data\warped_frames\not_bullet --label bullet
 ```
 
+If the bullet video contains moving shadows, save candidates to `raw` first and
+sort them manually. Put real bullet-hole patches into `labeled/bullet`, and put
+shadow/noise patches into `labeled/not_bullet` as hard negatives:
+
+```powershell
+python cv\DetectBullets\scripts\crop_candidate_patches.py --input data\warped_frames\bullet --background data\warped_frames\not_bullet --output data\bullet_patch\raw --label none --prefix review_bullet --every 3 --max-area 2500 --min-circularity 0.55
+```
+
 Not-bullet patches:
 
 ```powershell
 python cv\DetectBullets\scripts\crop_candidate_patches.py --input data\warped_frames\not_bullet --background data\warped_frames\not_bullet --label not_bullet --random-negatives 3
 ```
+
+By default the crop script hashes existing patches in the output folder and
+skips exact duplicates. Pass `--allow-duplicates` only if you intentionally
+want to keep repeated identical patches.
 
 Patch output:
 
@@ -64,6 +84,12 @@ data/bullet_patch/labeled/not_bullet
 
 Open and review a few generated patches before training. Move mislabeled crops
 between `bullet` and `not_bullet` if needed.
+
+Audit exact duplicates and split leakage:
+
+```powershell
+python cv\DetectBullets\scripts\audit_patch_dataset.py --root data\bullet_patch --csv cv\DetectBullets\results\duplicate_patches.csv
+```
 
 ### 3. Split train/val/test
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -49,6 +50,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--every", type=int, default=1, help="Process every Nth video frame.")
     parser.add_argument("--max-frames", type=int, default=0, help="Stop after saving this many warped images.")
+    parser.add_argument(
+        "--prefix",
+        default="",
+        help="Filename prefix. Defaults to the input video stem to avoid overwriting previous clips.",
+    )
     parser.add_argument(
         "--input-scale",
         type=float,
@@ -124,9 +130,25 @@ def build_output_dir(base: str, label: str) -> Path:
     return output_dir
 
 
+def safe_name(value: str) -> str:
+    value = re.sub(r"[^A-Za-z0-9_.-]+", "_", value.strip())
+    return value.strip("._") or "video"
+
+
+def unique_path(path: Path) -> Path:
+    if not path.exists():
+        return path
+    for index in range(1, 10000):
+        candidate = path.with_name(f"{path.stem}_dup{index:03d}{path.suffix}")
+        if not candidate.exists():
+            return candidate
+    raise RuntimeError(f"Cannot find unique filename for: {path}")
+
+
 def main() -> None:
     args = parse_args()
     output_dir = build_output_dir(args.output, args.label)
+    file_prefix = safe_name(args.prefix or Path(args.video).stem)
 
     cap = cv2.VideoCapture(args.video)
     if not cap.isOpened():
@@ -170,8 +192,8 @@ def main() -> None:
                     continue
 
                 warped = cv2.warpPerspective(frame, homography, (WIDTH, HEIGHT))
-                filename = f"frame_{frame_idx:06d}_{target_name}.{args.ext}"
-                cv2.imwrite(str(output_dir / filename), warped)
+                filename = f"{file_prefix}_frame_{frame_idx:06d}_{target_name}.{args.ext}"
+                cv2.imwrite(str(unique_path(output_dir / filename)), warped)
                 saved += 1
 
                 if args.max_frames and saved >= args.max_frames:
