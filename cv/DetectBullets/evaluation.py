@@ -12,7 +12,7 @@ class DetectionRecorder:
     Thread-safe CSV recorder for newly confirmed detections.
 
     CSV is enabled by setting SHOOT_EVAL_OUTPUT to a writable path.
-    Realtime posting is enabled by default via SHOOT_BACKEND_URL.
+    Realtime posting is opt-in via SHOOT_BACKEND_URL.
     """
 
     FIELDNAMES = [
@@ -114,7 +114,7 @@ class DetectionRecorder:
 
 def create_detection_recorder_from_env():
     csv_path = os.getenv("SHOOT_EVAL_OUTPUT", "").strip()
-    backend_url = os.getenv("SHOOT_BACKEND_URL", "http://127.0.0.1:8000/shot").strip()
+    backend_url = os.getenv("SHOOT_BACKEND_URL", "").strip()
     if os.getenv("SHOOT_REALTIME", "1").strip().lower() in {"0", "false", "no", "off"}:
         backend_url = ""
     if not csv_path and not backend_url:
