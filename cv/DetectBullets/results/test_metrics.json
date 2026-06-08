@@ -1,0 +1,20 @@
+{
+  "split": "test",
+  "model_path": "E:\\shooting-scoring-system\\cv\\DetectBullets\\models\\mobilenetv3_bullet.pt",
+  "split_dir": "E:\\shooting-scoring-system\\data\\bullet_patch\\test",
+  "threshold": 0.57,
+  "class_to_idx": {
+    "bullet": 0,
+    "not_bullet": 1
+  },
+  "model_bullet_class_index": 0,
+  "dataset_bullet_class_index": 0,
+  "tp": 1839,
+  "fp": 13,
+  "tn": 1031,
+  "fn": 9,
+  "accuracy": 0.9923928077455049,
+  "precision": 0.9929805615550756,
+  "recall": 0.9951298701298701,
+  "f1": 0.994054054054054
+}
