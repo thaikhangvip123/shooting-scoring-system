@@ -18,22 +18,54 @@ const IMAGE_SCALE = TARGET_CANVAS_SIZE / 3508;
 function buildGrid(shots, targetType, N = RESOLUTION) {
   const grid = Array.from({ length: N }, () => new Array(N).fill(0));
   const step = TARGET_CANVAS_SIZE / N;
+  const radiusCells = Math.max(2, Math.round(N / 18));
+  const sigma = Math.max(1, radiusCells / 2);
 
   shots.filter((shot) => shotTargetType(shot) === targetType).forEach((shot) => {
     const point = shotToCanvas(shot, targetType);
-    const col = Math.floor(point.x / step);
-    const row = Math.floor(point.y / step);
-    if (col >= 0 && col < N && row >= 0 && row < N) grid[row][col]++;
+    const centerCol = Math.floor(point.x / step);
+    const centerRow = Math.floor(point.y / step);
+
+    for (let row = centerRow - radiusCells; row <= centerRow + radiusCells; row += 1) {
+      if (row < 0 || row >= N) continue;
+      for (let col = centerCol - radiusCells; col <= centerCol + radiusCells; col += 1) {
+        if (col < 0 || col >= N) continue;
+        const dx = col - centerCol;
+        const dy = row - centerRow;
+        const distSq = dx * dx + dy * dy;
+        if (distSq > radiusCells * radiusCells) continue;
+        grid[row][col] += Math.exp(-distSq / (2 * sigma * sigma));
+      }
+    }
   });
 
   return grid;
 }
 
 function heatColor(t) {
-  const r = Math.round(Math.min(1, t * 2) * 255);
-  const g = Math.round(Math.min(1, Math.max(0, t * 2 - 0.5)) * 255 * (t < 0.75 ? 1 : (1 - t) * 4));
-  const b = Math.round(Math.max(0, 1 - t * 2) * 200);
-  const a = Math.round(Math.min(1, t * 3) * 220);
+  const v = Math.max(0, Math.min(1, t));
+  let r;
+  let g;
+  let b;
+
+  if (v < 0.33) {
+    const p = v / 0.33;
+    r = 0;
+    g = Math.round(90 + p * 165);
+    b = 255;
+  } else if (v < 0.66) {
+    const p = (v - 0.33) / 0.33;
+    r = Math.round(p * 255);
+    g = 255;
+    b = Math.round(255 - p * 220);
+  } else {
+    const p = (v - 0.66) / 0.34;
+    r = 255;
+    g = Math.round(255 - p * 230);
+    b = 0;
+  }
+
+  const a = Math.round(45 + v * 175);
   return [r, g, b, a];
 }
 
@@ -89,49 +121,47 @@ export default function HeatmapChart({ shots = [], grid: backendGrid = null, tar
     const ctx = canvas.getContext('2d');
     const W = canvas.width;
     const H = canvas.height;
-    const cw = W / N;
-    const ch = H / N;
 
     drawTarget(ctx, targetType);
 
     let maxVal = 1;
     grid.forEach((row) => row.forEach((value) => { if (value > maxVal) maxVal = value; }));
-
-    const heatCanvas = document.createElement('canvas');
-    heatCanvas.width = W;
-    heatCanvas.height = H;
-    const heatCtx = heatCanvas.getContext('2d');
-    heatCtx.globalCompositeOperation = 'lighter';
-
     const filtered = shots.filter((shot) => shotTargetType(shot) === targetType);
-    filtered.forEach((shot) => {
-      const point = shotToCanvas(shot, targetType);
-      const col = Math.floor(point.x / cw);
-      const row = Math.floor(point.y / ch);
-      const density = row >= 0 && row < N && col >= 0 && col < N ? grid[row][col] / maxVal : 1;
-      const [r, g, b] = heatColor(Math.max(0.35, density));
-      const radius = 32 + Math.min(22, density * 18);
-      const gradient = heatCtx.createRadialGradient(point.x, point.y, 0, point.x, point.y, radius);
-      gradient.addColorStop(0, `rgba(255,255,210,${0.55 + density * 0.25})`);
-      gradient.addColorStop(0.25, `rgba(${r},${g},${b},${0.32 + density * 0.22})`);
-      gradient.addColorStop(0.62, `rgba(${r},${g},${b},${0.12 + density * 0.12})`);
-      gradient.addColorStop(1, `rgba(${r},${g},${b},0)`);
+    const saturation = Math.max(2, Math.min(maxVal, Math.min(4, Math.max(2, Math.ceil(filtered.length / 3)))));
 
-      heatCtx.fillStyle = gradient;
-      heatCtx.beginPath();
-      heatCtx.arc(point.x, point.y, radius, 0, Math.PI * 2);
-      heatCtx.fill();
+    const densityCanvas = document.createElement('canvas');
+    densityCanvas.width = N;
+    densityCanvas.height = N;
+    const densityCtx = densityCanvas.getContext('2d');
+    const image = densityCtx.createImageData(N, N);
+
+    grid.forEach((row, y) => {
+      row.forEach((value, x) => {
+        if (value <= 0) return;
+        const density = Math.min(1, value / saturation);
+        const [r, g, b, a] = heatColor(density);
+        const index = (y * N + x) * 4;
+        image.data[index] = r;
+        image.data[index + 1] = g;
+        image.data[index + 2] = b;
+        image.data[index + 3] = a;
+      });
     });
+    densityCtx.putImageData(image, 0, 0);
 
-    ctx.filter = 'blur(7px)';
-    ctx.drawImage(heatCanvas, 0, 0);
+    ctx.save();
+    ctx.filter = 'blur(8px)';
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(densityCanvas, 0, 0, W, H);
+    ctx.restore();
     ctx.filter = 'none';
 
     filtered.forEach((shot) => {
       const point = shotToCanvas(shot, targetType);
       ctx.beginPath();
-      ctx.arc(point.x, point.y, 2.4, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(255,255,255,0.75)';
+      ctx.arc(point.x, point.y, 1.8, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
       ctx.fill();
     });
   }, [grid, shots, targetType]);

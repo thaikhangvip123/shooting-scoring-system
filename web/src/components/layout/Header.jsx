@@ -15,12 +15,29 @@ const PAGE_TITLES = {
   '/settings':  'Settings',
 };
 
-export default function Header({ shots, session, onReset }) {
+const LIVE_SESSION = '__live__';
+
+function formatSessionOption(summary) {
+  const name = summary.number != null ? `Session ${summary.number}` : summary.id;
+  const status = summary.status ? ` ${summary.status}` : '';
+  const target = summary.targetType ? ` - ${summary.targetType}` : '';
+  return `${name}${target} (${summary.shotCount} shots)${status}`;
+}
+
+export default function Header({
+  shots,
+  session,
+  sessionSummaries = [],
+  selectedSessionId = LIVE_SESSION,
+  onSessionSelect,
+  onReset,
+}) {
   const location = useLocation();
   const title    = PAGE_TITLES[location.pathname] ?? 'Shooting Score';
   const total    = shots.length;
   const totalScore = shots.reduce((s, sh) => s + (sh.score ?? 0), 0);
-  const sessionLabel = session
+  const previousSessions = sessionSummaries.filter((summary) => summary.id !== session?.session_id);
+  const currentSessionLabel = session
     ? `Session ${session.session_number} (${session.shot_count}/${session.shots_per_session}) ${session.status ?? ''}`.trim()
     : 'Session -';
 
@@ -65,7 +82,7 @@ export default function Header({ shots, session, onReset }) {
             whiteSpace: 'nowrap',
           }}
         >
-          {sessionLabel}
+          {currentSessionLabel}
         </span>
         {session?.status === 'running' && (
           <span
@@ -91,6 +108,29 @@ export default function Header({ shots, session, onReset }) {
             Session complete
           </span>
         )}
+        <select
+          value={selectedSessionId}
+          onChange={(event) => onSessionSelect?.(event.target.value)}
+          title="View session"
+          style={{
+            height: 32,
+            width: 190,
+            border: '1px solid var(--c-border)',
+            borderRadius: 6,
+            background: 'var(--c-bg-0)',
+            color: 'var(--c-text-1)',
+            padding: '0 8px',
+            fontSize: 12,
+            fontWeight: 600,
+          }}
+        >
+          <option value={LIVE_SESSION}>Live session</option>
+          {previousSessions.map((summary) => (
+            <option key={summary.id} value={summary.id}>
+              {formatSessionOption(summary)}
+            </option>
+          ))}
+        </select>
         <ExportButtons shots={shots} />
         <button className="btn" onClick={handleReset} title="Reset current session">
           Reset

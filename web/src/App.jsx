@@ -5,7 +5,7 @@
  */
 
 import { Routes, Route } from 'react-router-dom';
-import { useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Sidebar       from '@/components/layout/Sidebar';
 import Header        from '@/components/layout/Header';
 import { useShots }  from '@/hooks/useShots';
@@ -17,6 +17,63 @@ import ShotsPage     from '@/pages/ShotsPage';
 import AnalyticsPage from '@/pages/AnalyticsPage';
 import HeatmapPage   from '@/pages/HeatmapPage';
 import SettingsPage  from '@/pages/SettingsPage';
+
+const LIVE_SESSION = '__live__';
+
+function sessionNumberFromId(sessionId) {
+  const match = String(sessionId ?? '').match(/^session-(\d+)$/);
+  return match ? Number(match[1]) : null;
+}
+
+function buildSessionSummaries(shots, session) {
+  const summaries = new Map();
+
+  shots.forEach((shot) => {
+    if (!shot.session_id) return;
+    const current = summaries.get(shot.session_id) ?? {
+      id: shot.session_id,
+      number: sessionNumberFromId(shot.session_id),
+      shotCount: 0,
+      totalScore: 0,
+      latestTimestamp: null,
+      targetType: shot.metadata?.target_type ?? null,
+      status: null,
+      isCurrent: false,
+    };
+
+    current.shotCount += 1;
+    current.totalScore += shot.score ?? 0;
+    if (!current.latestTimestamp || new Date(shot.timestamp) > new Date(current.latestTimestamp)) {
+      current.latestTimestamp = shot.timestamp;
+    }
+    if (!current.targetType && shot.metadata?.target_type) current.targetType = shot.metadata.target_type;
+    summaries.set(shot.session_id, current);
+  });
+
+  if (session?.session_id) {
+    const current = summaries.get(session.session_id) ?? {
+      id: session.session_id,
+      number: session.session_number ?? sessionNumberFromId(session.session_id),
+      shotCount: 0,
+      totalScore: 0,
+      latestTimestamp: session.started_at ?? session.completed_at ?? null,
+      targetType: session.target_type ?? null,
+      status: session.status ?? null,
+      isCurrent: true,
+    };
+    current.number = session.session_number ?? current.number;
+    current.shotCount = Math.max(current.shotCount, session.shot_count ?? 0);
+    current.targetType = session.target_type ?? current.targetType;
+    current.status = session.status ?? current.status;
+    current.isCurrent = true;
+    summaries.set(session.session_id, current);
+  }
+
+  return Array.from(summaries.values()).sort((a, b) => {
+    if (a.number != null && b.number != null && a.number !== b.number) return b.number - a.number;
+    return new Date(b.latestTimestamp ?? 0) - new Date(a.latestTimestamp ?? 0);
+  });
+}
 
 export default function App() {
   const {
@@ -30,12 +87,44 @@ export default function App() {
     setShotsPerSession,
   } = useShots();
   const currentSessionId = session?.session_id ?? null;
-  const currentShots = currentSessionId
-    ? shots.filter((shot) => shot.session_id === currentSessionId)
+  const [selectedSessionId, setSelectedSessionId] = useState(LIVE_SESSION);
+  const sessionSummaries = useMemo(() => buildSessionSummaries(shots, session), [shots, session]);
+  const activeSessionId = selectedSessionId === LIVE_SESSION ? currentSessionId : selectedSessionId;
+  const selectedShots = activeSessionId
+    ? shots.filter((shot) => shot.session_id === activeSessionId)
     : shots;
-  const latestShot = currentShots[0] ?? null;
-  const { stats, heatmap }                                       = useStats(currentShots.length, currentSessionId);
+  const latestShot = selectedShots[0] ?? null;
+  const { stats, heatmap }                                       = useStats(selectedShots.length, activeSessionId);
   const [targetType, setTargetType]                              = useState('TRON');
+  const activeSessionSummary = sessionSummaries.find((summary) => summary.id === activeSessionId);
+  const activeSessionTargetType = activeSessionId === currentSessionId
+    ? session?.target_type ?? activeSessionSummary?.targetType
+    : activeSessionSummary?.targetType;
+
+  useEffect(() => {
+    if (selectedSessionId === LIVE_SESSION) return;
+    if (!sessionSummaries.some((summary) => summary.id === selectedSessionId)) {
+      setSelectedSessionId(LIVE_SESSION);
+    }
+  }, [selectedSessionId, sessionSummaries]);
+
+  useEffect(() => {
+    if (!activeSessionTargetType) return;
+    setTargetType((current) => (
+      current === activeSessionTargetType ? current : activeSessionTargetType
+    ));
+  }, [activeSessionId, activeSessionTargetType]);
+
+  const handleStartSession = useCallback(async (nextTargetType) => {
+    const next = await start(nextTargetType);
+    setSelectedSessionId(LIVE_SESSION);
+    return next;
+  }, [start]);
+
+  const handleReset = useCallback(async () => {
+    await reset();
+    setSelectedSessionId(LIVE_SESSION);
+  }, [reset]);
 
   return (
     <div
@@ -49,7 +138,14 @@ export default function App() {
       <Sidebar wsStatus={wsStatus} />
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        <Header shots={currentShots} session={session} onReset={reset} />
+        <Header
+          shots={selectedShots}
+          session={session}
+          sessionSummaries={sessionSummaries}
+          selectedSessionId={selectedSessionId}
+          onSessionSelect={setSelectedSessionId}
+          onReset={handleReset}
+        />
 
         {/* Global error banner */}
         {error && (
@@ -91,13 +187,13 @@ export default function App() {
                   path="/"
                   element={
                     <DashboardPage
-                      shots={shots}
-                      currentShots={currentShots}
+                      shots={selectedShots}
+                      currentShots={selectedShots}
                       stats={stats}
                       targetType={targetType}
                       onTargetTypeChange={setTargetType}
                       session={session}
-                      onStartSession={start}
+                      onStartSession={handleStartSession}
                       onShotsPerSessionChange={setShotsPerSession}
                     />
                   }
@@ -106,7 +202,7 @@ export default function App() {
                   path="/target"
                   element={
                     <TargetPage
-                      shots={currentShots}
+                      shots={selectedShots}
                       latestShot={latestShot}
                       targetType={targetType}
                       onTargetTypeChange={setTargetType}
@@ -115,17 +211,17 @@ export default function App() {
                 />
                 <Route
                   path="/shots"
-                  element={<ShotsPage shots={shots} latestShot={latestShot} />}
+                  element={<ShotsPage shots={selectedShots} latestShot={latestShot} />}
                 />
                 <Route
                   path="/analytics"
-                  element={<AnalyticsPage shots={currentShots} stats={stats} />}
+                  element={<AnalyticsPage shots={selectedShots} stats={stats} />}
                 />
                 <Route
                   path="/heatmap"
                   element={
                     <HeatmapPage
-                      shots={currentShots}
+                      shots={selectedShots}
                       heatmap={heatmap}
                       targetType={targetType}
                       onTargetTypeChange={setTargetType}

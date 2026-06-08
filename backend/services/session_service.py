@@ -108,7 +108,7 @@ class SessionManager:
                 self._status = "completed"
                 if self._completed_at is None:
                     self._completed_at = datetime.now(timezone.utc)
-                raise ValueError("Session complete. Apply a new session before saving more shots.")
+                raise ValueError("Session complete. Start a new session before saving more shots.")
             self._shot_count = shot_count + 1
             return (
                 self._session_id(),

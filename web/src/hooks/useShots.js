@@ -148,8 +148,10 @@ export function useShots() {
       setError(null);
       const next = await updateSessionSettings(count);
       if (mounted.current) setSession(next);
+      return next;
     } catch (e) {
       if (mounted.current) setError(e.message);
+      throw e;
     }
   }, []);
 

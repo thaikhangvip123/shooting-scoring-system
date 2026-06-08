@@ -26,7 +26,6 @@ export default function DashboardPage({
   const targetShots = visibleShots.filter((shot) => shotTargetType(shot) === targetType);
   const latestTargetShot = targetShots[0] ?? null;
   const [draftShotsPerSession, setDraftShotsPerSession] = useState(session?.shots_per_session ?? 10);
-  const [savingSession, setSavingSession] = useState(false);
   const [startingSession, setStartingSession] = useState(false);
   const sessionRunning = session?.status === 'running';
   const { color, label } = latestTargetShot
@@ -40,21 +39,15 @@ export default function DashboardPage({
     }
   }, [session?.shots_per_session]);
 
-  const handleSessionSave = async () => {
+  const handleStartSession = async () => {
     const next = Math.min(15, Math.max(5, Number(draftShotsPerSession) || 10));
     setDraftShotsPerSession(next);
-    setSavingSession(true);
-    try {
-      await onShotsPerSessionChange?.(next);
-    } finally {
-      setSavingSession(false);
-    }
-  };
-
-  const handleStartSession = async () => {
     setStartingSession(true);
     try {
+      await onShotsPerSessionChange?.(next);
       await onStartSession?.(targetType);
+    } catch (e) {
+      console.error('Start session failed', e);
     } finally {
       setStartingSession(false);
     }
@@ -162,17 +155,6 @@ export default function DashboardPage({
               style={{ marginLeft: 'auto' }}
             >
               {startingSession ? 'Starting...' : 'Start Session'}
-            </button>
-            <button
-              className="btn"
-              onClick={handleSessionSave}
-              disabled={
-                savingSession ||
-                sessionRunning ||
-                (!session?.completed && Number(draftShotsPerSession) === session?.shots_per_session)
-              }
-            >
-              {savingSession ? 'Saving...' : session?.completed ? 'Apply New Session' : 'Apply'}
             </button>
           </div>
         </div>

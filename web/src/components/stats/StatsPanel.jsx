@@ -13,7 +13,8 @@ export default function StatsPanel({ shots = [] }) {
     if (!shots.length) return {};
     const mmShots = shots.map((shot) => ({ ...shot, ...shotOffsetMm(shot) }));
     const radii = mmShots.map((shot) => radialDeviation(shot.x, shot.y));
-    const avgScore = shots.reduce((sum, shot) => sum + (shot.score ?? 0), 0) / shots.length;
+    const totalScore = shots.reduce((sum, shot) => sum + (shot.score ?? 0), 0);
+    const avgScore = totalScore / shots.length;
     const hitRate = shots.filter((shot) => shot.score > 0).length / shots.length;
 
     return {
@@ -22,11 +23,12 @@ export default function StatsPanel({ shots = [] }) {
       group: calcGroupSize(mmShots),
       poi: calcMeanPOI(mmShots),
       avgScore,
+      totalScore,
       hitRate,
     };
   }, [shots]);
 
-  const { cep, r50, group, poi, avgScore, hitRate } = computed;
+  const { cep, r50, group, poi, avgScore, totalScore, hitRate } = computed;
 
   return (
     <div
@@ -77,6 +79,13 @@ export default function StatsPanel({ shots = [] }) {
         sub="Scoring shots"
         color={hitRate > 0.9 ? 'var(--c-success)' : 'var(--c-warn)'}
         icon="✓"
+      />
+      <StatCard
+        label="Total Score"
+        value={totalScore != null ? totalScore : '-'}
+        sub={`${shots.length} shots`}
+        color="var(--c-accent-h)"
+        icon="#"
       />
     </div>
   );
