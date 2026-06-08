@@ -391,6 +391,27 @@ def resize_for_preview(frame, max_width):
     return cv2.resize(frame, (max_width, int(frame.shape[0] * scale)), interpolation=cv2.INTER_AREA)
 
 
+def scoring_window_name(target_name):
+    return f"Scoring: {target_name}"
+
+
+def close_scoring_windows(visible_windows):
+    for window_name in list(visible_windows):
+        try:
+            cv2.destroyWindow(window_name)
+        except cv2.error:
+            pass
+    visible_windows.clear()
+
+
+def clear_queue(q):
+    while True:
+        try:
+            q.get_nowait()
+        except queue.Empty:
+            return
+
+
 def main():
     args = parse_args()
     runtime_control = RuntimeControl(enabled=not args.disable_backend_control)
@@ -407,6 +428,7 @@ def main():
     input_queues = {name: queue.Queue(maxsize=1) for name in TARGET_SETS}
     output_queue = queue.Queue(maxsize=len(TARGET_SETS))
     latest_outputs = {name: None for name in TARGET_SETS}
+    visible_scoring_windows = set()
 
     for name in TARGET_SETS:
         thread = threading.Thread(
@@ -468,6 +490,11 @@ def main():
                 last_marker_dict = None
                 for q in input_queues.values():
                     replace_queue_item(q, {"type": "reset"})
+                clear_queue(output_queue)
+                for target_name in latest_outputs:
+                    latest_outputs[target_name] = None
+                if control["status"] == "idle":
+                    close_scoring_windows(visible_scoring_windows)
                 last_control_generation = control["generation"]
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
@@ -510,8 +537,14 @@ def main():
                 while True:
                     target_name, warped_result = output_queue.get_nowait()
                     latest_outputs[target_name] = warped_result
-                    if SHOW_SCORING_WINDOWS:
-                        cv2.imshow(f"Scoring: {target_name}", warped_result)
+                    if (
+                        SHOW_SCORING_WINDOWS
+                        and control["status"] == "running"
+                        and target_name == control["active_target"]
+                    ):
+                        window_name = scoring_window_name(target_name)
+                        cv2.imshow(window_name, warped_result)
+                        visible_scoring_windows.add(window_name)
             except queue.Empty:
                 pass
 
@@ -521,6 +554,7 @@ def main():
         for q in input_queues.values():
             replace_queue_item(q, None)
         source.release()
+        close_scoring_windows(visible_scoring_windows)
         cv2.destroyAllWindows()
 
 
